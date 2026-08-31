@@ -30,6 +30,11 @@ class LLMUpstreamError(RuntimeError):
         operation: str | None = None,
         upstream_status: int | None = None,
         upstream_code: str | None = None,
+        upstream_type: str | None = None,
+        upstream_classification: str | None = None,
+        provider_request_id: str | None = None,
+        retry_after: str | None = None,
+        rate_limit_scope: str | None = None,
         exception_type: str | None = None,
     ):
         super().__init__(code)
@@ -39,6 +44,11 @@ class LLMUpstreamError(RuntimeError):
         self.operation = operation
         self.upstream_status = upstream_status
         self.upstream_code = upstream_code
+        self.upstream_type = upstream_type
+        self.upstream_classification = upstream_classification
+        self.provider_request_id = provider_request_id
+        self.retry_after = retry_after
+        self.rate_limit_scope = rate_limit_scope
         self.exception_type = exception_type
 
     def diagnostic(self) -> dict[str, object]:
@@ -49,6 +59,11 @@ class LLMUpstreamError(RuntimeError):
             "operation": self.operation,
             "upstream_status": self.upstream_status,
             "upstream_code": self.upstream_code,
+            "upstream_type": self.upstream_type,
+            "upstream_classification": self.upstream_classification,
+            "provider_request_id": self.provider_request_id,
+            "retry_after": self.retry_after,
+            "rate_limit_scope": self.rate_limit_scope,
             "exception_type": self.exception_type,
         }
 

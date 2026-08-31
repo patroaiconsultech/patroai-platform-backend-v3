@@ -149,6 +149,11 @@ def _log_realtime_execution_failure(
     model: str | None = None,
     upstream_status: int | None = None,
     upstream_code: str | None = None,
+    upstream_type: str | None = None,
+    upstream_classification: str | None = None,
+    provider_request_id: str | None = None,
+    retry_after: str | None = None,
+    rate_limit_scope: str | None = None,
 ) -> None:
     realtime_logger.error(
         "REALTIME_EXECUTION_FAILURE %s",
@@ -171,6 +176,11 @@ def _log_realtime_execution_failure(
                 "model": model,
                 "upstream_status": upstream_status,
                 "upstream_code": upstream_code,
+                "upstream_type": upstream_type,
+                "upstream_classification": upstream_classification,
+                "provider_request_id": provider_request_id,
+                "retry_after": retry_after,
+                "rate_limit_scope": rate_limit_scope,
             },
             sort_keys=True,
         ),
@@ -884,6 +894,15 @@ async def realtime_final_turn(
             exception_type=exception_type,
             execution_id=execution_id,
             canonical_request_id=canonical_request_id,
+            provider=getattr(exc, "provider", None),
+            model=getattr(exc, "model", None),
+            upstream_status=getattr(exc, "upstream_status", None),
+            upstream_code=getattr(exc, "upstream_code", None),
+            upstream_type=getattr(exc, "upstream_type", None),
+            upstream_classification=getattr(exc, "upstream_classification", None),
+            provider_request_id=getattr(exc, "provider_request_id", None),
+            retry_after=getattr(exc, "retry_after", None),
+            rate_limit_scope=getattr(exc, "rate_limit_scope", None),
         )
         fail_receipt(db, tenant_id=p.tenant_id, turn_key=turn_key, error_code=code)
         raise HTTPException(502, detail={"code": code}) from exc

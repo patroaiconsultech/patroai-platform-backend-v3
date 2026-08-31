@@ -1,66 +1,72 @@
 {
   "product": "PatroAI Platform",
-  "candidate": "Premium Foundation + Realtime Voice RC",
-  "component": "backend",
-  "baseline_artifact": "patroai-platform-backend-v3-main (1).zip",
-  "baseline_sha256": "a36be635f6f85d8aeb817d90afcc2eaf89c144b51c490df08e7b9f846fd40865",
-  "repository_expected": "https://github.com/patroaiconsultech/patroai-platform-backend-v3",
-  "branch": "NOT_PROVEN_BY_ZIP",
-  "commit_sha": "NOT_PROVEN_BY_ZIP",
+  "candidate": "LLM 429 Diagnostic Premium Patch",
+  "scope": "sanitized upstream diagnostic enrichment only",
+  "artifact_basis": {
+    "local_tree": "Premium RC materialized backend tree",
+    "auditor_full_source_reference": "patroai-platform-backend-v3-main (2).zip",
+    "auditor_reported_sha256": "7f67b6fb338de678967a3209ba8b2c89b146a7088ef9d0e7ea9bc9c889519db4",
+    "full_source_zip_reproduced_in_this_runtime": false,
+    "repository": "https://github.com/patroaiconsultech/patroai-platform-backend-v3",
+    "branch": "NOT_PROVEN",
+    "commit_sha": "NOT_PROVEN",
+    "deployed_commit_sha": "NOT_PROVEN_IN_THIS_ACT",
+    "environment_target": "staging-v3 after independent audit"
+  },
   "modified_files": [
-    ".github/workflows/01-backend-ci.yml",
-    "docs/PRE_OIDC_DEPLOYMENT.md",
-    "src/orkio_v2/realtime_routes.py",
-    "src/orkio_v2/routes.py",
     "src/orkio_v2/services/llm_contracts.py",
     "src/orkio_v2/services/llm_providers.py",
-    "src/orkio_v2/services/realtime_execution.py"
-  ],
-  "new_files": [
-    ".github/workflows/02-postgres-integration.yml",
-    "docs/REALTIME_VOICE_STAGING_ENABLEMENT.md",
-    "scripts/build_release_manifest.py",
-    "scripts/check_migration_hygiene.py",
-    "scripts/check_realtime_voice.py",
-    "scripts/check_workflow_action_pinning.py",
-    "tests/test_foundation_hardening_contract.py",
+    "src/orkio_v2/services/realtime_execution.py",
+    "src/orkio_v2/realtime_routes.py",
     "tests/test_llm_observability_contract.py"
   ],
-  "removed_files": [],
-  "premium_scope": {
-    "legacy_backend_ci_immutable_pinning": "IMPLEMENTED",
-    "all_backend_external_action_refs_immutable_sha": "PASS_LOCAL",
-    "pinning_regression_gate": "IMPLEMENTED",
-    "runtime_architecture_changed": false
+  "behavioral_change": {
+    "llm_routing": false,
+    "model": false,
+    "retry": false,
+    "timeout": false,
+    "auth": false,
+    "tenant": false,
+    "database": false,
+    "migration": false,
+    "realtime_architecture": false,
+    "observability": true
   },
+  "new_safe_fields": [
+    "upstream_type",
+    "upstream_classification",
+    "provider_request_id",
+    "retry_after",
+    "rate_limit_scope"
+  ],
+  "classification_rules": {
+    "insufficient_quota": "QUOTA_EXHAUSTED",
+    "billing_hard_limit_reached/billing_not_active/billing_error": "PROVIDER_BILLING_BLOCKED",
+    "rate_limit_exceeded": "RATE_LIMITED",
+    "429_without_explicit_evidence": "UNKNOWN_UPSTREAM_429"
+  },
+  "sensitive_data_excluded": [
+    "Authorization",
+    "API keys",
+    "prompt/messages",
+    "raw response body",
+    "raw provider error message"
+  ],
   "validation": {
-    "workflow_action_pinning": "PASS refs=9",
     "compileall": "PASS",
-    "foundation_contract": {
-      "passed": 6,
-      "failed": 0
-    },
-    "full_pytest": {
-      "passed": 467,
-      "skipped": 3,
-      "failed": 0
-    },
-    "frontend_production_build": "NOT_VERIFIED",
-    "docker_build": "NOT_VERIFIED",
-    "postgresql_real": "NOT_VERIFIED",
-    "live_llm": "NOT_VERIFIED",
-    "live_realtime_voice": "NOT_VERIFIED"
-  },
-  "known_debt": {
-    "EFATA-AUD-001": "historical migration 001 still uses Base.metadata.create_all; not rewritten",
-    "FastAPI_on_event": "deprecation warning remains",
-    "immutable_pin_update_policy": "pins are immutable; periodic dependency update policy remains an operational concern"
+    "llm_observability": "6 passed",
+    "llm_failure_semantics": "10 passed",
+    "realtime_contracts": "38 passed",
+    "full_pytest": "471 passed / 3 skipped / 0 failed",
+    "live_429_after_patch": "NOT_EXECUTED"
   },
   "governance": {
+    "local_write_executed": true,
     "commit_executed": false,
     "merge_executed": false,
     "deploy_executed": false,
     "migration_executed": false,
-    "human_approval_required_for_deploy": true
+    "execution_allowed_for_staging": false,
+    "human_approval_required": true
   }
 }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 import json
+import re
 from typing import Any
 from urllib.parse import quote
 
@@ -44,6 +45,70 @@ def _content_or_fail(content: str) -> str:
     return content
 
 
+
+_SAFE_METADATA_TOKEN = re.compile(r"^[A-Za-z0-9._:/+\-, ]{1,160}$")
+
+
+def _safe_metadata(value: object, *, limit: int = 160) -> str | None:
+    """Keep only short provider metadata tokens; never retain free-form messages."""
+    if value is None:
+        return None
+    text = str(value).strip()[:limit]
+    if not text or not _SAFE_METADATA_TOKEN.fullmatch(text):
+        return None
+    return text
+
+
+def _rate_limit_scope(headers: httpx.Headers) -> str | None:
+    """Infer only the class of rate-limit headers, never their values."""
+    scopes: list[str] = []
+    lowered = {name.lower() for name in headers.keys()}
+    if any(
+        name in lowered
+        for name in (
+            "x-ratelimit-limit-requests",
+            "x-ratelimit-remaining-requests",
+            "x-ratelimit-reset-requests",
+        )
+    ):
+        scopes.append("requests")
+    if any(
+        name in lowered
+        for name in (
+            "x-ratelimit-limit-tokens",
+            "x-ratelimit-remaining-tokens",
+            "x-ratelimit-reset-tokens",
+        )
+    ):
+        scopes.append("tokens")
+    return ",".join(scopes) or None
+
+
+def _classify_upstream_error(
+    *,
+    status: int | None,
+    upstream_code: str | None,
+    upstream_type: str | None,
+) -> str | None:
+    """Classify only when evidence is explicit; never infer quota from HTTP 429 alone."""
+    evidence = {
+        token.lower()
+        for token in (upstream_code, upstream_type)
+        if isinstance(token, str) and token.strip()
+    }
+    if "insufficient_quota" in evidence:
+        return "QUOTA_EXHAUSTED"
+    if evidence.intersection(
+        {"billing_hard_limit_reached", "billing_not_active", "billing_error"}
+    ):
+        return "PROVIDER_BILLING_BLOCKED"
+    if "rate_limit_exceeded" in evidence:
+        return "RATE_LIMITED"
+    if status == 429:
+        return "UNKNOWN_UPSTREAM_429"
+    return None
+
+
 def _provider_error(
     *,
     provider: ProviderName,
@@ -51,24 +116,49 @@ def _provider_error(
     operation: str,
     exc: Exception,
 ) -> LLMUpstreamError:
-    """Normalize upstream failures without retaining secrets, prompts, or headers."""
+    """Normalize upstream failures without retaining secrets, prompts, or raw bodies."""
     status: int | None = None
     upstream_code: str | None = None
+    upstream_type: str | None = None
+    provider_request_id: str | None = None
+    retry_after: str | None = None
+    rate_limit_scope: str | None = None
 
     if isinstance(exc, httpx.HTTPStatusError):
-        status = exc.response.status_code
+        response = exc.response
+        status = response.status_code
+
+        provider_request_id = _safe_metadata(
+            response.headers.get("x-request-id") or response.headers.get("request-id")
+        )
+        retry_after = _safe_metadata(response.headers.get("retry-after"), limit=80)
+        rate_limit_scope = _rate_limit_scope(response.headers)
+
         try:
-            payload = exc.response.json()
+            payload = response.json()
         except Exception:
             payload = None
+
         if isinstance(payload, dict):
             error = payload.get("error")
             if isinstance(error, dict):
-                raw_code = error.get("code") or error.get("type")
-                if raw_code is not None:
-                    upstream_code = str(raw_code)[:120]
+                raw_code = error.get("code")
+                raw_type = error.get("type")
+                upstream_code = _safe_metadata(raw_code, limit=120)
+                upstream_type = _safe_metadata(raw_type, limit=120)
+
+                # Backward compatibility: historically `upstream_code` fell back to
+                # `error.type`. Preserve that field while exposing type separately.
+                if upstream_code is None:
+                    upstream_code = upstream_type
             elif payload.get("code") is not None:
-                upstream_code = str(payload.get("code"))[:120]
+                upstream_code = _safe_metadata(payload.get("code"), limit=120)
+
+    upstream_classification = _classify_upstream_error(
+        status=status,
+        upstream_code=upstream_code,
+        upstream_type=upstream_type,
+    )
 
     return LLMUpstreamError(
         "LLM_UPSTREAM_ERROR",
@@ -77,6 +167,11 @@ def _provider_error(
         operation=operation,
         upstream_status=status,
         upstream_code=upstream_code,
+        upstream_type=upstream_type,
+        upstream_classification=upstream_classification,
+        provider_request_id=provider_request_id,
+        retry_after=retry_after,
+        rate_limit_scope=rate_limit_scope,
         exception_type=type(exc).__name__,
     )
 

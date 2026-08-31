@@ -44,6 +44,11 @@ class RealtimeExecutionError(RuntimeError):
         model: str | None = None,
         upstream_status: int | None = None,
         upstream_code: str | None = None,
+        upstream_type: str | None = None,
+        upstream_classification: str | None = None,
+        provider_request_id: str | None = None,
+        retry_after: str | None = None,
+        rate_limit_scope: str | None = None,
     ):
         super().__init__(code)
         self.code = code
@@ -55,6 +60,11 @@ class RealtimeExecutionError(RuntimeError):
         self.model = model
         self.upstream_status = upstream_status
         self.upstream_code = upstream_code
+        self.upstream_type = upstream_type
+        self.upstream_classification = upstream_classification
+        self.provider_request_id = provider_request_id
+        self.retry_after = retry_after
+        self.rate_limit_scope = rate_limit_scope
 
 
 def _unexpected_execution_error(
@@ -186,6 +196,11 @@ async def execute_realtime_direct(
             model=exc.model,
             upstream_status=exc.upstream_status,
             upstream_code=exc.upstream_code,
+            upstream_type=exc.upstream_type,
+            upstream_classification=exc.upstream_classification,
+            provider_request_id=exc.provider_request_id,
+            retry_after=exc.retry_after,
+            rate_limit_scope=exc.rate_limit_scope,
         ) from exc
     if not answer:
         raise RealtimeExecutionError(
@@ -329,6 +344,11 @@ async def execute_realtime_team(
             model=exc.model,
             upstream_status=exc.upstream_status,
             upstream_code=exc.upstream_code,
+            upstream_type=exc.upstream_type,
+            upstream_classification=exc.upstream_classification,
+            provider_request_id=exc.provider_request_id,
+            retry_after=exc.retry_after,
+            rate_limit_scope=exc.rate_limit_scope,
         ) from exc
     if not answer:
         raise RealtimeExecutionError(
@@ -486,6 +506,11 @@ async def stream_realtime_direct(
             model=exc.model,
             upstream_status=exc.upstream_status,
             upstream_code=exc.upstream_code,
+            upstream_type=exc.upstream_type,
+            upstream_classification=exc.upstream_classification,
+            provider_request_id=exc.provider_request_id,
+            retry_after=exc.retry_after,
+            rate_limit_scope=exc.rate_limit_scope,
         ) from exc
 
     answer = "".join(answer_parts).strip()
