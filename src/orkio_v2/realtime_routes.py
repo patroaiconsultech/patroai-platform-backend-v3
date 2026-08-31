@@ -145,6 +145,10 @@ def _log_realtime_execution_failure(
     exception_type: str,
     execution_id: str | None = None,
     canonical_request_id: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    upstream_status: int | None = None,
+    upstream_code: str | None = None,
 ) -> None:
     realtime_logger.error(
         "REALTIME_EXECUTION_FAILURE %s",
@@ -163,6 +167,10 @@ def _log_realtime_execution_failure(
                 "status": "failed",
                 "error_code": error_code,
                 "exception_type": exception_type,
+                "provider": provider,
+                "model": model,
+                "upstream_status": upstream_status,
+                "upstream_code": upstream_code,
             },
             sort_keys=True,
         ),

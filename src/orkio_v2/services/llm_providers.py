@@ -44,6 +44,43 @@ def _content_or_fail(content: str) -> str:
     return content
 
 
+def _provider_error(
+    *,
+    provider: ProviderName,
+    model: str,
+    operation: str,
+    exc: Exception,
+) -> LLMUpstreamError:
+    """Normalize upstream failures without retaining secrets, prompts, or headers."""
+    status: int | None = None
+    upstream_code: str | None = None
+
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        try:
+            payload = exc.response.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            error = payload.get("error")
+            if isinstance(error, dict):
+                raw_code = error.get("code") or error.get("type")
+                if raw_code is not None:
+                    upstream_code = str(raw_code)[:120]
+            elif payload.get("code") is not None:
+                upstream_code = str(payload.get("code"))[:120]
+
+    return LLMUpstreamError(
+        "LLM_UPSTREAM_ERROR",
+        provider=provider.value,
+        model=model,
+        operation=operation,
+        upstream_status=status,
+        upstream_code=upstream_code,
+        exception_type=type(exc).__name__,
+    )
+
+
 def openai_endpoint(settings: Settings) -> str:
     base = _clean(settings.openai_api_base) or DEFAULT_OPENAI_BASE
     return f"{base.rstrip('/')}/chat/completions"
@@ -100,7 +137,12 @@ class OpenAIProvider:
         except LLMNotConfigured:
             raise
         except Exception as exc:  # noqa: BLE001 - provider details remain private
-            raise LLMUpstreamError("LLM_UPSTREAM_ERROR") from exc
+            raise _provider_error(
+                provider=self.name,
+                model=self.model,
+                operation="generate",
+                exc=exc,
+            ) from exc
 
         choices = data.get("choices") or []
         if not choices:
@@ -147,7 +189,12 @@ class OpenAIProvider:
         except LLMNotConfigured:
             raise
         except Exception as exc:  # noqa: BLE001
-            raise LLMUpstreamError("LLM_UPSTREAM_ERROR") from exc
+            raise _provider_error(
+                provider=self.name,
+                model=self.model,
+                operation="stream",
+                exc=exc,
+            ) from exc
 
     async def healthcheck(self) -> ProviderHealth:
         if self.descriptor().state is ProviderConfigurationState.unconfigured:
@@ -232,7 +279,12 @@ class AnthropicProvider:
         except LLMNotConfigured:
             raise
         except Exception as exc:  # noqa: BLE001
-            raise LLMUpstreamError("LLM_UPSTREAM_ERROR") from exc
+            raise _provider_error(
+                provider=self.name,
+                model=self.model,
+                operation="generate",
+                exc=exc,
+            ) from exc
 
         text = "".join(
             str(block.get("text") or "")
@@ -293,7 +345,12 @@ class AnthropicProvider:
         except LLMUpstreamError:
             raise
         except Exception as exc:  # noqa: BLE001
-            raise LLMUpstreamError("LLM_UPSTREAM_ERROR") from exc
+            raise _provider_error(
+                provider=self.name,
+                model=self.model,
+                operation="stream",
+                exc=exc,
+            ) from exc
 
     async def healthcheck(self) -> ProviderHealth:
         if self.descriptor().state is ProviderConfigurationState.unconfigured:
@@ -398,7 +455,12 @@ class GoogleProvider:
         except LLMNotConfigured:
             raise
         except Exception as exc:  # noqa: BLE001
-            raise LLMUpstreamError("LLM_UPSTREAM_ERROR") from exc
+            raise _provider_error(
+                provider=self.name,
+                model=self.model,
+                operation="generate",
+                exc=exc,
+            ) from exc
 
         usage_raw = data.get("usageMetadata") or {}
         return LLMResult(
@@ -439,7 +501,12 @@ class GoogleProvider:
         except LLMNotConfigured:
             raise
         except Exception as exc:  # noqa: BLE001
-            raise LLMUpstreamError("LLM_UPSTREAM_ERROR") from exc
+            raise _provider_error(
+                provider=self.name,
+                model=self.model,
+                operation="stream",
+                exc=exc,
+            ) from exc
 
     async def healthcheck(self) -> ProviderHealth:
         if self.descriptor().state is ProviderConfigurationState.unconfigured:

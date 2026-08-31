@@ -1,3 +1,9 @@
+> **HISTORICAL / ARCHIVED — NÃO USAR COMO RUNBOOK OPERACIONAL ATUAL.**
+> Este documento registra um estágio pré-OIDC. O migration head e a configuração
+> operacional devem ser obtidos do release manifest gerado pelo CI e do código
+> atualmente implantado. No baseline auditado em 2026-08-31, o head observado é
+> `006_knowledge_plane_hardening`.
+
 # Backend deployment order — Functional Pre-OIDC
 
 ## 1. Source and build

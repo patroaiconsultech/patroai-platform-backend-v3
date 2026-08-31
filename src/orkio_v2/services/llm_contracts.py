@@ -19,7 +19,38 @@ class LLMNotConfigured(RuntimeError):
 
 
 class LLMUpstreamError(RuntimeError):
-    """O provedor solicitado respondeu com erro ou ficou indisponível."""
+    """Erro upstream com diagnóstico sanitizado, sem credenciais ou payload privado."""
+
+    def __init__(
+        self,
+        code: str = "LLM_UPSTREAM_ERROR",
+        *,
+        provider: str | None = None,
+        model: str | None = None,
+        operation: str | None = None,
+        upstream_status: int | None = None,
+        upstream_code: str | None = None,
+        exception_type: str | None = None,
+    ):
+        super().__init__(code)
+        self.code = code
+        self.provider = provider
+        self.model = model
+        self.operation = operation
+        self.upstream_status = upstream_status
+        self.upstream_code = upstream_code
+        self.exception_type = exception_type
+
+    def diagnostic(self) -> dict[str, object]:
+        """Return only non-secret metadata suitable for structured logs."""
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "operation": self.operation,
+            "upstream_status": self.upstream_status,
+            "upstream_code": self.upstream_code,
+            "exception_type": self.exception_type,
+        }
 
 
 class ProviderName(str, Enum):

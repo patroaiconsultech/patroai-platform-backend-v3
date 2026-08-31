@@ -82,6 +82,7 @@ from .services.external_read_tool import ExternalReadError, read_external_url
 router=APIRouter(prefix="/api/v2")
 artifact_gate_logger=logging.getLogger("orkio.artifact_gate")
 internal_consultation_logger=logging.getLogger("orkio.internal_consultation")
+llm_runtime_logger=logging.getLogger("orkio.llm_runtime")
 
 
 @router.post("/access/validate")
@@ -761,8 +762,23 @@ async def send_message(thread_id:str,payload:MessageCreate,p:Principal=Depends(r
     except llm.LLMNotConfigured:
         observer.fail("LLM_NOT_CONFIGURED")
         raise HTTPException(503,"LLM_NOT_CONFIGURED")
-    except llm.LLMUpstreamError:
+    except llm.LLMUpstreamError as exc:
         observer.fail("LLM_UPSTREAM_ERROR")
+        llm_runtime_logger.error(
+            "LLM_PROVIDER_FAILURE %s",
+            json.dumps(
+                {
+                    "request_id": turn.request_id,
+                    "execution_id": turn.execution_id,
+                    "tenant_id": turn.tenant_id,
+                    "thread_id": turn.thread_id,
+                    "agent_id": turn.turn_owner_agent_id,
+                    "route_family": turn.route_family.value,
+                    **exc.diagnostic(),
+                },
+                sort_keys=True,
+            ),
+        )
         raise HTTPException(502,"LLM_UPSTREAM_ERROR")
 
     assistant,envelope=persist_agent_response(db,turn=turn,content=answer)
@@ -982,8 +998,37 @@ async def stream_message(thread_id:str,payload:MessageCreate,p:Principal=Depends
             yield sse_event(event(RuntimeEventType.ERROR,code="LLM_NOT_CONFIGURED"))
             yield sse_event(terminal(RuntimeEventType.DONE,status="failed"))
             return
-        except Exception:
+        except llm.LLMUpstreamError as exc:
             observer.fail("LLM_UPSTREAM_ERROR")
+            llm_runtime_logger.error(
+                "LLM_PROVIDER_FAILURE %s",
+                json.dumps(
+                    {
+                        "request_id": turn.request_id,
+                        "execution_id": turn.execution_id,
+                        "tenant_id": turn.tenant_id,
+                        "thread_id": turn.thread_id,
+                        "agent_id": turn.turn_owner_agent_id,
+                        "route_family": turn.route_family.value,
+                        **exc.diagnostic(),
+                    },
+                    sort_keys=True,
+                ),
+            )
+            yield sse_event(event(RuntimeEventType.ERROR,code="LLM_UPSTREAM_ERROR"))
+            yield sse_event(terminal(RuntimeEventType.DONE,status="failed"))
+            return
+        except Exception as exc:
+            observer.fail("LLM_UPSTREAM_ERROR")
+            llm_runtime_logger.exception(
+                "LLM_RUNTIME_FAILURE request_id=%s execution_id=%s tenant_id=%s thread_id=%s agent_id=%s exception_type=%s",
+                turn.request_id,
+                turn.execution_id,
+                turn.tenant_id,
+                turn.thread_id,
+                turn.turn_owner_agent_id,
+                type(exc).__name__,
+            )
             yield sse_event(event(RuntimeEventType.ERROR,code="LLM_UPSTREAM_ERROR"))
             yield sse_event(terminal(RuntimeEventType.DONE,status="failed"))
             return

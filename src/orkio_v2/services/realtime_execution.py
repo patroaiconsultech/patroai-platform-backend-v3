@@ -40,6 +40,10 @@ class RealtimeExecutionError(RuntimeError):
         exception_type: str | None = None,
         request_id: str | None = None,
         execution_id: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        upstream_status: int | None = None,
+        upstream_code: str | None = None,
     ):
         super().__init__(code)
         self.code = code
@@ -47,6 +51,10 @@ class RealtimeExecutionError(RuntimeError):
         self.exception_type = exception_type
         self.request_id = request_id
         self.execution_id = execution_id
+        self.provider = provider
+        self.model = model
+        self.upstream_status = upstream_status
+        self.upstream_code = upstream_code
 
 
 def _unexpected_execution_error(
@@ -166,13 +174,18 @@ async def execute_realtime_direct(
             request_id=turn.request_id,
             execution_id=turn.execution_id,
         ) from exc
-    except Exception as exc:
+    except llm.LLMUpstreamError as exc:
+        diagnostic = exc.diagnostic()
         raise RealtimeExecutionError(
             "LLM_UPSTREAM_ERROR",
             stage="llm",
-            exception_type=type(exc).__name__,
+            exception_type=exc.exception_type or type(exc).__name__,
             request_id=turn.request_id,
             execution_id=turn.execution_id,
+            provider=exc.provider,
+            model=exc.model,
+            upstream_status=exc.upstream_status,
+            upstream_code=exc.upstream_code,
         ) from exc
     if not answer:
         raise RealtimeExecutionError(
@@ -305,13 +318,17 @@ async def execute_realtime_team(
             request_id=turn.request_id,
             execution_id=turn.execution_id,
         ) from exc
-    except Exception as exc:
+    except llm.LLMUpstreamError as exc:
         raise RealtimeExecutionError(
             "LLM_UPSTREAM_ERROR",
             stage="llm_synthesis",
-            exception_type=type(exc).__name__,
+            exception_type=exc.exception_type or type(exc).__name__,
             request_id=turn.request_id,
             execution_id=turn.execution_id,
+            provider=exc.provider,
+            model=exc.model,
+            upstream_status=exc.upstream_status,
+            upstream_code=exc.upstream_code,
         ) from exc
     if not answer:
         raise RealtimeExecutionError(
@@ -458,13 +475,17 @@ async def stream_realtime_direct(
             request_id=turn.request_id,
             execution_id=turn.execution_id,
         ) from exc
-    except Exception as exc:
+    except llm.LLMUpstreamError as exc:
         raise RealtimeExecutionError(
             "LLM_UPSTREAM_ERROR",
             stage="llm_stream",
-            exception_type=type(exc).__name__,
+            exception_type=exc.exception_type or type(exc).__name__,
             request_id=turn.request_id,
             execution_id=turn.execution_id,
+            provider=exc.provider,
+            model=exc.model,
+            upstream_status=exc.upstream_status,
+            upstream_code=exc.upstream_code,
         ) from exc
 
     answer = "".join(answer_parts).strip()
