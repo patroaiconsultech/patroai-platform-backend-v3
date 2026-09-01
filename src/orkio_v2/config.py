@@ -1,7 +1,9 @@
 from functools import lru_cache
 from typing import Literal
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from .provenance import resolve_build_provenance
 
 
 _DEVELOPMENT_INVITATION_SECRET = "-".join(("development", "only", "change", "me", "32chars"))
@@ -13,10 +15,16 @@ class Settings(BaseSettings):
         "development",
         validation_alias=AliasChoices("PLATFORM_ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME"),
     )
-    release_sha: str = Field(
-        "local",
-        validation_alias=AliasChoices("PLATFORM_RELEASE_SHA", "RAILWAY_GIT_COMMIT_SHA"),
-    )
+    platform_release_sha: str | None = Field(None, alias="PLATFORM_RELEASE_SHA")
+    railway_git_commit_sha: str | None = Field(None, alias="RAILWAY_GIT_COMMIT_SHA")
+    railway_deployment_id: str | None = Field(None, alias="RAILWAY_DEPLOYMENT_ID")
+    railway_service_name: str | None = Field(None, alias="RAILWAY_SERVICE_NAME")
+    release_sha: str = "unknown"
+    _release_sha_source: str = PrivateAttr(default="unresolved")
+
+    @property
+    def release_sha_source(self) -> str:
+        return self._release_sha_source
     database_url: str = Field("sqlite+pysqlite:///./orkio_v2.db", alias="DATABASE_URL")
     allowed_origins: str = Field("http://localhost:5173", alias="PLATFORM_ALLOWED_ORIGINS")
 
@@ -220,6 +228,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def secure_modes(self):
+        provenance = resolve_build_provenance(
+            platform_release_sha=self.platform_release_sha,
+            railway_git_commit_sha=self.railway_git_commit_sha,
+        )
+        self.release_sha = provenance.build_sha or "unknown"
+        self._release_sha_source = provenance.source
         if self.environment == "production" and self.demo_headers_enabled:
             raise ValueError("DEMO_IDENTITY_HEADERS_FORBIDDEN_IN_PRODUCTION")
         if self.environment == "production":

@@ -154,6 +154,8 @@ def _log_realtime_execution_failure(
     provider_request_id: str | None = None,
     retry_after: str | None = None,
     rate_limit_scope: str | None = None,
+    operation: str | None = None,
+    elapsed_ms: int | None = None,
 ) -> None:
     realtime_logger.error(
         "REALTIME_EXECUTION_FAILURE %s",
@@ -181,6 +183,8 @@ def _log_realtime_execution_failure(
                 "provider_request_id": provider_request_id,
                 "retry_after": retry_after,
                 "rate_limit_scope": rate_limit_scope,
+                "operation": operation,
+                "elapsed_ms": elapsed_ms,
             },
             sort_keys=True,
         ),
@@ -196,6 +200,7 @@ def _log_realtime_call_failure(
     stage: str,
     error_code: str,
     exception_type: str,
+    validation_scope: str | None = None,
 ) -> None:
     realtime_logger.error(
         "REALTIME_CALL_FAILURE %s",
@@ -218,6 +223,7 @@ def _log_realtime_call_failure(
                 "status": "failed",
                 "error_code": error_code,
                 "exception_type": exception_type,
+                "validation_scope": validation_scope,
                 "release_sha": settings.release_sha,
                 "environment": settings.environment,
             },
@@ -419,6 +425,7 @@ async def realtime_call(
             stage="voice_binding",
             error_code=exc.code,
             exception_type=type(exc).__name__,
+            validation_scope=exc.validation_scope,
         )
         raise HTTPException(503, detail={"code": exc.code}) from exc
     except RealtimeSessionError as exc:
@@ -903,6 +910,8 @@ async def realtime_final_turn(
             provider_request_id=getattr(exc, "provider_request_id", None),
             retry_after=getattr(exc, "retry_after", None),
             rate_limit_scope=getattr(exc, "rate_limit_scope", None),
+            operation=getattr(exc, "operation", None),
+            elapsed_ms=getattr(exc, "elapsed_ms", None),
         )
         fail_receipt(db, tenant_id=p.tenant_id, turn_key=turn_key, error_code=code)
         raise HTTPException(502, detail={"code": code}) from exc

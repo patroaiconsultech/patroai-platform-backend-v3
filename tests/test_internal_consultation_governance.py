@@ -120,10 +120,10 @@ def test_railway_provenance_aliases_are_supported(monkeypatch):
     monkeypatch.delenv("PLATFORM_ENVIRONMENT", raising=False)
     monkeypatch.delenv("PLATFORM_RELEASE_SHA", raising=False)
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
-    monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "abc123")
+    monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "a" * 40)
     monkeypatch.setenv("PLATFORM_ALLOWED_ORIGINS", "https://frontend.example.test")
     monkeypatch.setenv("DATABASE_URL", "postgresql://" + "dbuser" + ":" + "fixture" + "@example.test/db?sslmode=require")
     monkeypatch.setenv("PLATFORM_INVITATION_TOKEN_SECRET", "x" * 40)
     settings = Settings()
     assert settings.environment == "production"
-    assert settings.release_sha == "abc123"
+    assert settings.release_sha == "a" * 40

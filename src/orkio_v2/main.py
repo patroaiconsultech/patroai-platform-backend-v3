@@ -1,6 +1,7 @@
 import re
 import hmac
 import logging
+import json
 import secrets
 import uuid
 from fastapi import FastAPI, Request
@@ -17,6 +18,7 @@ from .voice_routes import router as voice_router
 from .tts_routes import router as tts_router
 from .public_applications import router as public_applications_router
 from .knowledge_routes import router as knowledge_router
+from .provenance import runtime_provenance_payload
 
 settings=get_settings()
 logger = logging.getLogger("orkio.public_applications")
@@ -90,6 +92,10 @@ async def csrf_middleware(request: Request, call_next):
 
 @app.on_event("startup")
 def startup():
+    logger.info(
+        "RUNTIME_PROVENANCE %s",
+        json.dumps(runtime_provenance_payload(settings), sort_keys=True),
+    )
 
     if settings.environment in {"development","test"}:
         Base.metadata.create_all(engine)

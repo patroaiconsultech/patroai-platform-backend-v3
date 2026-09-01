@@ -88,7 +88,7 @@ def test_production_requires_durable_storage():
             PLATFORM_ALLOWED_ORIGINS="https://frontend.example.test",
             DATABASE_URL="postgresql://" + "dbuser" + ":" + "fixture" + "@example.test/db?sslmode=require",
             PLATFORM_INVITATION_TOKEN_SECRET="x" * 40,
-            PLATFORM_RELEASE_SHA="test-release-sha",
+            PLATFORM_RELEASE_SHA="a" * 40,
         )
 
 

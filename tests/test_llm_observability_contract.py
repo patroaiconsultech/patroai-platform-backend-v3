@@ -179,4 +179,45 @@ def test_llm_upstream_diagnostic_keeps_runtime_metadata_only():
         "retry_after": None,
         "rate_limit_scope": None,
         "exception_type": "HTTPStatusError",
+        "elapsed_ms": None,
     }
+
+def test_read_timeout_is_classified_without_raw_exception_detail():
+    request = httpx.Request(
+        "POST",
+        "https://api.openai.com/v1/chat/completions",
+        headers={"Authorization": "Bearer secret-never-log"},
+    )
+    source = httpx.ReadTimeout("private upstream timeout detail", request=request)
+    error = _provider_error(
+        provider=ProviderName.openai,
+        model="gpt-5",
+        operation="stream",
+        exc=source,
+        elapsed_ms=1234,
+    )
+
+    assert error.upstream_status is None
+    assert error.upstream_classification == "PROVIDER_READ_TIMEOUT"
+    assert error.exception_type == "ReadTimeout"
+    assert error.operation == "stream"
+    assert error.elapsed_ms == 1234
+    rendered = repr(error.diagnostic())
+    assert "private upstream timeout detail" not in rendered
+    assert "secret-never-log" not in rendered
+
+
+def test_non_timeout_without_explicit_provider_evidence_remains_unclassified():
+    request = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+    source = httpx.ConnectError("private connect detail", request=request)
+    error = _provider_error(
+        provider=ProviderName.openai,
+        model="gpt-5",
+        operation="generate",
+        exc=source,
+        elapsed_ms=77,
+    )
+    assert error.upstream_classification is None
+    assert error.exception_type == "ConnectError"
+    assert error.elapsed_ms == 77
+

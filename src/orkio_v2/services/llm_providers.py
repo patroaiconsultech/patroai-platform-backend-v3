@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 import json
 import re
+import time
 from typing import Any
 from urllib.parse import quote
 
@@ -115,6 +116,7 @@ def _provider_error(
     model: str,
     operation: str,
     exc: Exception,
+    elapsed_ms: int | None = None,
 ) -> LLMUpstreamError:
     """Normalize upstream failures without retaining secrets, prompts, or raw bodies."""
     status: int | None = None
@@ -159,6 +161,8 @@ def _provider_error(
         upstream_code=upstream_code,
         upstream_type=upstream_type,
     )
+    if isinstance(exc, httpx.ReadTimeout):
+        upstream_classification = "PROVIDER_READ_TIMEOUT"
 
     return LLMUpstreamError(
         "LLM_UPSTREAM_ERROR",
@@ -173,6 +177,7 @@ def _provider_error(
         retry_after=retry_after,
         rate_limit_scope=rate_limit_scope,
         exception_type=type(exc).__name__,
+        elapsed_ms=elapsed_ms,
     )
 
 
@@ -220,6 +225,7 @@ class OpenAIProvider:
 
     async def generate_result(self, agent: str, history: list[dict]) -> LLMResult:
         key = self.ensure_configured()
+        started_at = time.monotonic()
         try:
             async with httpx.AsyncClient(timeout=self.settings.llm_http_timeout_seconds) as client:
                 response = await client.post(
@@ -237,6 +243,7 @@ class OpenAIProvider:
                 model=self.model,
                 operation="generate",
                 exc=exc,
+                elapsed_ms=max(0, int((time.monotonic() - started_at) * 1000)),
             ) from exc
 
         choices = data.get("choices") or []
@@ -258,6 +265,7 @@ class OpenAIProvider:
 
     async def stream(self, agent: str, history: list[dict]) -> AsyncIterator[str]:
         key = self.ensure_configured()
+        started_at = time.monotonic()
         try:
             async with httpx.AsyncClient(timeout=self.settings.llm_http_timeout_seconds) as client:
                 async with client.stream(
@@ -289,6 +297,7 @@ class OpenAIProvider:
                 model=self.model,
                 operation="stream",
                 exc=exc,
+                elapsed_ms=max(0, int((time.monotonic() - started_at) * 1000)),
             ) from exc
 
     async def healthcheck(self) -> ProviderHealth:

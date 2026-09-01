@@ -49,6 +49,8 @@ class RealtimeExecutionError(RuntimeError):
         provider_request_id: str | None = None,
         retry_after: str | None = None,
         rate_limit_scope: str | None = None,
+        operation: str | None = None,
+        elapsed_ms: int | None = None,
     ):
         super().__init__(code)
         self.code = code
@@ -65,6 +67,8 @@ class RealtimeExecutionError(RuntimeError):
         self.provider_request_id = provider_request_id
         self.retry_after = retry_after
         self.rate_limit_scope = rate_limit_scope
+        self.operation = operation
+        self.elapsed_ms = elapsed_ms
 
 
 def _unexpected_execution_error(
@@ -201,6 +205,8 @@ async def execute_realtime_direct(
             provider_request_id=exc.provider_request_id,
             retry_after=exc.retry_after,
             rate_limit_scope=exc.rate_limit_scope,
+            operation=exc.operation,
+            elapsed_ms=exc.elapsed_ms,
         ) from exc
     if not answer:
         raise RealtimeExecutionError(
@@ -349,6 +355,8 @@ async def execute_realtime_team(
             provider_request_id=exc.provider_request_id,
             retry_after=exc.retry_after,
             rate_limit_scope=exc.rate_limit_scope,
+            operation=exc.operation,
+            elapsed_ms=exc.elapsed_ms,
         ) from exc
     if not answer:
         raise RealtimeExecutionError(
@@ -511,6 +519,8 @@ async def stream_realtime_direct(
             provider_request_id=exc.provider_request_id,
             retry_after=exc.retry_after,
             rate_limit_scope=exc.rate_limit_scope,
+            operation=exc.operation,
+            elapsed_ms=exc.elapsed_ms,
         ) from exc
 
     answer = "".join(answer_parts).strip()

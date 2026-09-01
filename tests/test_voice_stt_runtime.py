@@ -332,7 +332,7 @@ def test_production_stt_requires_prewarmed_local_model(monkeypatch):
     monkeypatch.setenv("PLATFORM_ALLOWED_ORIGINS", "https://frontend.example.test")
     monkeypatch.setenv("DATABASE_URL", "postgresql://" + "dbuser" + ":" + "fixture" + "@example.test/db?sslmode=require")
     monkeypatch.setenv("PLATFORM_INVITATION_TOKEN_SECRET", "x" * 40)
-    monkeypatch.setenv("PLATFORM_RELEASE_SHA", "test-release-sha")
+    monkeypatch.setenv("PLATFORM_RELEASE_SHA", "a" * 40)
     with pytest.raises(ValueError, match="STT_PRODUCTION_REQUIRES_PREWARMED_LOCAL_MODEL"):
         Settings()
 

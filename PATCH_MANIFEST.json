@@ -1,54 +1,24 @@
 {
   "product": "PatroAI Platform",
-  "candidate": "Backend Premium Consolidated Final Candidate — Foundation + LLM429-present + Gate015 V2.1",
-  "baseline_artifact": "patroai-platform-backend-v3-main (4).zip",
-  "baseline_sha256": "ec4900c282f7b57bc8a92fa17966750ece25a1562f9d8a46f87c41bd6fc73a27",
-  "repository_expected": "https://github.com/patroaiconsultech/patroai-platform-backend-v3",
-  "branch": "NOT_PROVEN_BY_ZIP",
-  "commit_sha": "NOT_PROVEN_BY_ZIP",
-  "deployed_release_sha_observed_in_runtime": "85e268d4a709941242c08c67e9cb212ce4dcc8ea",
-  "zip_to_deployed_equivalence": "NOT_PROVEN",
-  "baseline_analysis": {
-    "llm429_diagnostic_files": "ALREADY_PRESENT_AND_HASH_MATCHED",
-    "foundation_non_supply_chain_files": "ALREADY_PRESENT_OR_NEWER",
-    "missing_foundation_items": [
-      ".github/workflows/01-backend-ci.yml immutable pinning/gate",
-      ".github/workflows/02-postgres-integration.yml"
-    ],
-    "gate015_v2_1": "NOT_PRESENT_IN_BASELINE"
-  },
-  "changed_or_new_files": [
-    ".github/workflows/01-backend-ci.yml",
-    ".github/workflows/02-postgres-integration.yml",
-    "scripts/check_realtime_voice.py",
-    "scripts/smoke_voice_provider.py",
-    "tests/test_voice_binding_preflight.py",
-    "tests/test_voice_provider_smoke.py",
-    "docs/REALTIME_VOICE_STAGING_ENABLEMENT.md"
-  ],
-  "preserved": {
-    "llm429_observability": true,
-    "tenant_auth_db_migrations_unchanged": true,
-    "runtime_voice_realtime_code_unchanged_by_consolidation": true,
-    "frontend_unchanged": true
-  },
-  "validation": {
-    "workflow_action_pinning": "PASS refs=9",
-    "compileall": "PASS",
-    "foundation_contract": "6 passed",
-    "voice_binding_preflight": "5 passed",
-    "provider_smoke": "16 passed",
-    "voice": "34 passed",
-    "realtime": "38 passed",
-    "full_pytest": "492 passed / 3 skipped / 0 failed",
-    "secret_scan_hits": 0,
-    "live_provider_smoke": "NOT_EXECUTED",
-    "railway_preflight": "NOT_EXECUTED",
-    "postgresql_real_workflow": "NOT_EXECUTED",
-    "docker_build": "NOT_EXECUTED"
+  "candidate": "Backend Premium Provenance + Gate015 + LLM ReadTimeout RC1.2",
+  "purpose": "Packaging integrity hardening only; functional payload unchanged from RC1.1",
+  "baseline_artifact": "patroai-platform-backend-v3-main (6).zip",
+  "baseline_sha256": "0e4c58ad47a43764a4a1d931ad385f9741e5aa21f643271323836706d32aea17",
+  "source_rc1_1_sha256_local": "719d4ee5b247983cc9e32917af94de21eeaf3249ef185479d4f8973b74309114",
+  "repository": "https://github.com/patroaiconsultech/patroai-platform-backend-v3",
+  "branch": "main",
+  "source_commit": "bc5311dcb4df0bd71a6eeeb3fec3c47502bc0f",
+  "functional_files_count": 15,
+  "metadata_files_count": 3,
+  "expected_zip_entries": 18,
+  "unexpected_nested_zip_policy": "FAIL",
+  "functional_behavior_changed_vs_rc1_1": false,
+  "packaging_findings": {
+    "PKG-DIFF-001": "CLOSED_LOCAL",
+    "PROV-EVIDENCE-002": "CLOSED_LOCAL",
+    "PKG-HASH-003": "TARGETED_BY_RC1_2_REPACKAGING"
   },
   "governance": {
-    "local_materialization_executed": true,
     "repository_write_executed": false,
     "commit_executed": false,
     "merge_executed": false,

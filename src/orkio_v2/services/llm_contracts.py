@@ -36,6 +36,7 @@ class LLMUpstreamError(RuntimeError):
         retry_after: str | None = None,
         rate_limit_scope: str | None = None,
         exception_type: str | None = None,
+        elapsed_ms: int | None = None,
     ):
         super().__init__(code)
         self.code = code
@@ -50,6 +51,7 @@ class LLMUpstreamError(RuntimeError):
         self.retry_after = retry_after
         self.rate_limit_scope = rate_limit_scope
         self.exception_type = exception_type
+        self.elapsed_ms = elapsed_ms
 
     def diagnostic(self) -> dict[str, object]:
         """Return only non-secret metadata suitable for structured logs."""
@@ -65,6 +67,7 @@ class LLMUpstreamError(RuntimeError):
             "retry_after": self.retry_after,
             "rate_limit_scope": self.rate_limit_scope,
             "exception_type": self.exception_type,
+            "elapsed_ms": self.elapsed_ms,
         }
 
 

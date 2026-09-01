@@ -9,9 +9,10 @@ from ..config import Settings
 
 
 class VoiceBindingError(RuntimeError):
-    def __init__(self, code: str):
+    def __init__(self, code: str, *, validation_scope: str | None = None):
         super().__init__(code)
         self.code = code
+        self.validation_scope = validation_scope
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +72,7 @@ def resolve_voice_profile(
     if not bool(raw.get("enabled")):
         raise VoiceBindingError("VOICE_BINDING_DISABLED")
     if not bool(raw.get("validated")):
-        raise VoiceBindingError("VOICE_PROFILE_NOT_VALIDATED")
+        raise VoiceBindingError("VOICE_PROFILE_NOT_VALIDATED", validation_scope="binding")
 
     delivery_modes = raw.get("delivery_modes")
     if delivery_modes is not None:
@@ -89,7 +90,7 @@ def resolve_voice_profile(
     if not bool(profile.get("enabled")):
         raise VoiceBindingError("VOICE_PROFILE_UNBOUND")
     if not bool(profile.get("validated")):
-        raise VoiceBindingError("VOICE_PROFILE_NOT_VALIDATED")
+        raise VoiceBindingError("VOICE_PROFILE_NOT_VALIDATED", validation_scope="locale_profile")
 
     provider = str(profile.get("provider") or "").strip()
     voice_id = str(profile.get("voice_id") or "").strip()
