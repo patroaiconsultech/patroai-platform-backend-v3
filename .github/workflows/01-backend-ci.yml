@@ -27,15 +27,21 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
 
       - name: Setup Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: "3.12"
           cache: "pip"
+
+      - name: Verify immutable workflow action pinning
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python scripts/check_workflow_action_pinning.py
 
       - name: Verify toolchain
         shell: bash
@@ -110,7 +116,7 @@ jobs:
 
       - name: Upload CI evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4 series immutable SHA
         with:
           name: orkio-backend-core-ci-evidence
           path: build-evidence/
