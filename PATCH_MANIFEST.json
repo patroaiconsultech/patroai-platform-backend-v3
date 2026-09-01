@@ -1,72 +1,59 @@
 {
   "product": "PatroAI Platform",
-  "candidate": "LLM 429 Diagnostic Premium Patch",
-  "scope": "sanitized upstream diagnostic enrichment only",
-  "artifact_basis": {
-    "local_tree": "Premium RC materialized backend tree",
-    "auditor_full_source_reference": "patroai-platform-backend-v3-main (2).zip",
-    "auditor_reported_sha256": "7f67b6fb338de678967a3209ba8b2c89b146a7088ef9d0e7ea9bc9c889519db4",
-    "full_source_zip_reproduced_in_this_runtime": false,
-    "repository": "https://github.com/patroaiconsultech/patroai-platform-backend-v3",
-    "branch": "NOT_PROVEN",
-    "commit_sha": "NOT_PROVEN",
-    "deployed_commit_sha": "NOT_PROVEN_IN_THIS_ACT",
-    "environment_target": "staging-v3 after independent audit"
+  "candidate": "Backend Premium Consolidated Final Candidate — Foundation + LLM429-present + Gate015 V2.1",
+  "baseline_artifact": "patroai-platform-backend-v3-main (4).zip",
+  "baseline_sha256": "ec4900c282f7b57bc8a92fa17966750ece25a1562f9d8a46f87c41bd6fc73a27",
+  "repository_expected": "https://github.com/patroaiconsultech/patroai-platform-backend-v3",
+  "branch": "NOT_PROVEN_BY_ZIP",
+  "commit_sha": "NOT_PROVEN_BY_ZIP",
+  "deployed_release_sha_observed_in_runtime": "85e268d4a709941242c08c67e9cb212ce4dcc8ea",
+  "zip_to_deployed_equivalence": "NOT_PROVEN",
+  "baseline_analysis": {
+    "llm429_diagnostic_files": "ALREADY_PRESENT_AND_HASH_MATCHED",
+    "foundation_non_supply_chain_files": "ALREADY_PRESENT_OR_NEWER",
+    "missing_foundation_items": [
+      ".github/workflows/01-backend-ci.yml immutable pinning/gate",
+      ".github/workflows/02-postgres-integration.yml"
+    ],
+    "gate015_v2_1": "NOT_PRESENT_IN_BASELINE"
   },
-  "modified_files": [
-    "src/orkio_v2/services/llm_contracts.py",
-    "src/orkio_v2/services/llm_providers.py",
-    "src/orkio_v2/services/realtime_execution.py",
-    "src/orkio_v2/realtime_routes.py",
-    "tests/test_llm_observability_contract.py"
+  "changed_or_new_files": [
+    ".github/workflows/01-backend-ci.yml",
+    ".github/workflows/02-postgres-integration.yml",
+    "scripts/check_realtime_voice.py",
+    "scripts/smoke_voice_provider.py",
+    "tests/test_voice_binding_preflight.py",
+    "tests/test_voice_provider_smoke.py",
+    "docs/REALTIME_VOICE_STAGING_ENABLEMENT.md"
   ],
-  "behavioral_change": {
-    "llm_routing": false,
-    "model": false,
-    "retry": false,
-    "timeout": false,
-    "auth": false,
-    "tenant": false,
-    "database": false,
-    "migration": false,
-    "realtime_architecture": false,
-    "observability": true
+  "preserved": {
+    "llm429_observability": true,
+    "tenant_auth_db_migrations_unchanged": true,
+    "runtime_voice_realtime_code_unchanged_by_consolidation": true,
+    "frontend_unchanged": true
   },
-  "new_safe_fields": [
-    "upstream_type",
-    "upstream_classification",
-    "provider_request_id",
-    "retry_after",
-    "rate_limit_scope"
-  ],
-  "classification_rules": {
-    "insufficient_quota": "QUOTA_EXHAUSTED",
-    "billing_hard_limit_reached/billing_not_active/billing_error": "PROVIDER_BILLING_BLOCKED",
-    "rate_limit_exceeded": "RATE_LIMITED",
-    "429_without_explicit_evidence": "UNKNOWN_UPSTREAM_429"
-  },
-  "sensitive_data_excluded": [
-    "Authorization",
-    "API keys",
-    "prompt/messages",
-    "raw response body",
-    "raw provider error message"
-  ],
   "validation": {
+    "workflow_action_pinning": "PASS refs=9",
     "compileall": "PASS",
-    "llm_observability": "6 passed",
-    "llm_failure_semantics": "10 passed",
-    "realtime_contracts": "38 passed",
-    "full_pytest": "471 passed / 3 skipped / 0 failed",
-    "live_429_after_patch": "NOT_EXECUTED"
+    "foundation_contract": "6 passed",
+    "voice_binding_preflight": "5 passed",
+    "provider_smoke": "16 passed",
+    "voice": "34 passed",
+    "realtime": "38 passed",
+    "full_pytest": "492 passed / 3 skipped / 0 failed",
+    "secret_scan_hits": 0,
+    "live_provider_smoke": "NOT_EXECUTED",
+    "railway_preflight": "NOT_EXECUTED",
+    "postgresql_real_workflow": "NOT_EXECUTED",
+    "docker_build": "NOT_EXECUTED"
   },
   "governance": {
-    "local_write_executed": true,
+    "local_materialization_executed": true,
+    "repository_write_executed": false,
     "commit_executed": false,
     "merge_executed": false,
     "deploy_executed": false,
     "migration_executed": false,
-    "execution_allowed_for_staging": false,
     "human_approval_required": true
   }
 }

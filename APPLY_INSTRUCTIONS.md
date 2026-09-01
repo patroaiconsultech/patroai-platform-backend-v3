@@ -1,23 +1,22 @@
-# PatroAI Platform — LLM 429 Diagnostic Premium Patch
+# PatroAI Platform V3 — Backend Premium Consolidated Final Candidate
 
-Apply only after confirming exact repository, branch and commit.
+Baseline:
+`patroai-platform-backend-v3-main (4).zip`
+SHA-256:
+`ec4900c282f7b57bc8a92fa17966750ece25a1562f9d8a46f87c41bd6fc73a27`
 
-This patch changes observability only. It does NOT change:
-- OPENAI_API_KEY
-- model
-- retry
-- timeout
-- routing
-- auth
-- tenant
-- database/migrations
-- Realtime architecture
+Apply only the seven complete backend files preserving paths.
 
-After application:
-1. run compileall and pytest;
-2. perform independent audit;
-3. only after approval deploy to staging;
-4. reproduce exactly one controlled LLM request;
-5. inspect sanitized `LLM_PROVIDER_FAILURE`;
-6. classify the 429 using evidence;
-7. do not enable retry or switch model/key until the cause is proven.
+Important:
+- do NOT upload this ZIP as a repository file;
+- confirm exact target branch/commit before overwriting;
+- the baseline already contains the audited LLM429 diagnostic files, so they are deliberately NOT reintroduced here;
+- this package reconciles the missing Foundation supply-chain pieces and Gate 015 V2.1;
+- no frontend, DB, migration or ENV change is included.
+
+Required before merge/deploy:
+- CI on complete target repository;
+- PostgreSQL workflow real;
+- provenance/release SHA;
+- Railway preflight;
+- explicit human authorization before Gate 015 live.

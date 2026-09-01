@@ -142,3 +142,104 @@ PLATFORM_STT_PROVIDER=disabled
 ```
 
 Redeploy backend. Text chat/SSE remains the primary fallback.
+
+## 8. Premium preflight for voice bindings
+
+Before any Realtime call, run the read-only preflight against the target agent:
+
+```bash
+python scripts/check_realtime_voice.py --agent-id orkio --locale pt-BR
+```
+
+For the current Cocriador binding, require at minimum:
+
+```text
+voice_bindings.json_parse=PASS
+voice_bindings.root_object=PASS
+voice_binding::orkio.found=true
+voice_binding::orkio.enabled=true
+locale_profile.found=true
+provider_set=true
+voice_id_set=true
+model_set=true
+```
+
+The preflight intentionally reports validation state separately. It never prints the raw
+`PLATFORM_VOICE_BINDINGS_JSON`, provider secret, `voice_id`, model value, or profile payload.
+
+## 9. Gate 015 — staging-only provider smoke before validation promotion
+
+`validated=true` is not a substitute for a provider smoke. When a profile is structurally
+configured but still unvalidated, use the administrative CLI:
+
+```bash
+python scripts/smoke_voice_provider.py \
+  --agent-id orkio \
+  --locale pt-BR \
+  --confirm-provider-call
+```
+
+Hard guards:
+
+- staging only;
+- exactly one provider request;
+- no automatic retry;
+- fixed, non-sensitive smoke text;
+- no HTTP endpoint;
+- no DB write;
+- no ENV mutation;
+- no cache write;
+- no automatic change to either `validated` flag;
+- no raw JSON, API key, Authorization header, `voice_id`, model value, provider response
+  body, audio bytes, or provider request id printed.
+
+A PASS requires all of:
+
+```text
+HTTP 2xx
+Content-Type explicitly MP3-compatible (`audio/mpeg` or `audio/mp3`)
+non-empty audio body
+MP3 structural validation (optional valid ID3v2 header + two complete consecutive MPEG audio frames)
+```
+
+`application/octet-stream` is intentionally rejected because it does not prove audio.
+A bare `ID3` prefix or isolated MPEG sync prefix is not accepted. The smoke requires two complete consecutive MPEG frames, optionally after a structurally valid ID3v2 header.
+The evidence also reports only:
+
+```text
+provider_endpoint_class=DEFAULT_OPENAI | CUSTOM_CONFIGURED
+```
+
+It never prints the configured provider URL/hostname.
+
+After and only after the provider smoke is independently reviewed as PASS, a human may promote:
+
+```text
+voice_binding::orkio.validated=true
+voice_binding::orkio.locale_profiles.pt-BR.validated=true
+```
+
+Then redeploy staging and retry one canonical Realtime call. The disappearance of
+`VOICE_PROFILE_NOT_VALIDATED` proves only that the validation gate was crossed; it does not by
+itself prove WebRTC, transcription, canonical execution, TTS playback, or barge-in.
+
+## 10. Gate 015 human authorization template
+
+```text
+GATE 015 — STAGING ORKIO VOICE PROVIDER SMOKE
+
+Authorized:
+one OpenAI TTS provider call in staging for orkio / pt-BR.
+
+Forbidden:
+ENV mutation, validated mutation, DB writes, migrations, tenant/auth changes,
+WebRTC, STT, automatic retry, secret logging, raw binding JSON logging,
+voice/model value logging, response-body/audio logging.
+
+Expected evidence:
+HTTP success + audio content type + non-empty audio.
+
+Any other result:
+FAIL + STOP.
+```
+
