@@ -248,6 +248,127 @@ class KnowledgeDocument(Base):
         DateTime(timezone=True), default=now, onupdate=now
     )
 
+class KnowledgeDocumentDerivative(Base):
+    __tablename__ = "knowledge_document_derivatives"
+    __table_args__ = (
+        UniqueConstraint("knowledge_id", "kind", name="uq_knowledge_derivative_kind"),
+        CheckConstraint(
+            "status IN ('PENDING','PROCESSING','READY','PARTIAL','FAILED','OCR_REQUIRED')",
+            name="ck_knowledge_derivative_status",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uid)
+    knowledge_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_documents.id", ondelete="CASCADE"), index=True
+    )
+    tenant_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(40), default="CANONICAL_MARKDOWN")
+    storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True, unique=True)
+    sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(24), default="PENDING", index=True)
+    extractor: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    extractor_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    source_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    canonical_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    warnings_json: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now, onupdate=now
+    )
+
+
+class KnowledgeDocumentSection(Base):
+    __tablename__ = "knowledge_document_sections"
+    __table_args__ = (
+        UniqueConstraint("knowledge_id", "ordinal", name="uq_knowledge_section_ordinal"),
+        CheckConstraint("level >= 0", name="ck_knowledge_section_level_nonnegative"),
+        CheckConstraint("byte_end >= byte_start", name="ck_knowledge_section_byte_range"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uid)
+    knowledge_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_documents.id", ondelete="CASCADE"), index=True
+    )
+    derivative_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_document_derivatives.id", ondelete="CASCADE"), index=True
+    )
+    tenant_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    parent_section_id: Mapped[str | None] = mapped_column(
+        ForeignKey("knowledge_document_sections.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    ordinal: Mapped[int] = mapped_column(Integer)
+    heading: Mapped[str] = mapped_column(String(500))
+    level: Mapped[int] = mapped_column(Integer, default=0)
+    page_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    page_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    byte_start: Mapped[int] = mapped_column(Integer)
+    byte_end: Mapped[int] = mapped_column(Integer)
+    estimated_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class KnowledgeDocumentChunk(Base):
+    __tablename__ = "knowledge_document_chunks"
+    __table_args__ = (
+        UniqueConstraint("knowledge_id", "ordinal", name="uq_knowledge_chunk_ordinal"),
+        CheckConstraint("byte_end > byte_start", name="ck_knowledge_chunk_byte_range"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uid)
+    knowledge_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_documents.id", ondelete="CASCADE"), index=True
+    )
+    derivative_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_document_derivatives.id", ondelete="CASCADE"), index=True
+    )
+    section_id: Mapped[str | None] = mapped_column(
+        ForeignKey("knowledge_document_sections.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    tenant_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    ordinal: Mapped[int] = mapped_column(Integer)
+    byte_start: Mapped[int] = mapped_column(Integer)
+    byte_end: Mapped[int] = mapped_column(Integer)
+    estimated_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    text_sha256: Mapped[str] = mapped_column(String(64))
+    terms_json: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class KnowledgeDocumentSelection(Base):
+    __tablename__ = "knowledge_document_selections"
+    __table_args__ = (
+        UniqueConstraint(
+            "knowledge_id", "tenant_id", "user_id",
+            name="uq_knowledge_selection_actor_document"
+        ),
+        CheckConstraint(
+            "mode IN ('MANUAL','AUTO')",
+            name="ck_knowledge_selection_mode",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uid)
+    knowledge_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_documents.id", ondelete="CASCADE"), index=True
+    )
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    mode: Mapped[str] = mapped_column(String(16), default="AUTO")
+    section_ids: Mapped[list] = mapped_column(JSON, default=list)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now, onupdate=now
+    )
+
+
 class KnowledgeStorageCleanup(Base):
     """Durable queue for orphan-blob cleanup after partial storage failures.
 

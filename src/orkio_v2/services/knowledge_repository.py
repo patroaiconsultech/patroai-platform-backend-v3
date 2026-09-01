@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import hashlib
 import logging
 import uuid
+from pathlib import Path
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -366,6 +367,106 @@ def _storage_key(
     )
 
 
+def create_uploaded_document_from_file(
+    db: Session,
+    *,
+    principal: Principal,
+    scope: str,
+    title: str,
+    filename: str,
+    mime_type: str,
+    source_path: Path,
+    size_bytes: int,
+    digest: str,
+    classification: str,
+    allowed_purposes: list[str] | tuple[str, ...] | None,
+    agent_id: str | None,
+    expires_at: datetime | None,
+    storage: BlobStorage,
+) -> KnowledgeDocument:
+    """Persist a knowledge source from a local staging file without full buffering."""
+    scope = normalize_scope(scope)
+    assert_upload_allowed(scope, principal)
+    purposes = normalize_purposes(allowed_purposes)
+    logical_id = str(uuid.uuid4())
+    row_id = str(uuid.uuid4())
+    status = (
+        KnowledgeStatus.active.value
+        if scope == KnowledgeScope.personal.value
+        else KnowledgeStatus.draft.value
+    )
+    tenant_id = None if scope == KnowledgeScope.platform.value else principal.tenant_id
+    owner_user_id = principal.user_id if scope == KnowledgeScope.personal.value else None
+    current = utcnow()
+    storage_key = _storage_key(
+        scope=scope,
+        tenant_id=tenant_id,
+        logical_document_id=logical_id,
+        version=1,
+        digest=digest,
+        filename=filename,
+    )
+    created_blob = storage.put_file_if_absent(
+        storage_key,
+        source_path,
+        content_type=mime_type,
+    )
+    if not created_blob:
+        raise KnowledgeRepositoryError("KNOWLEDGE_STORAGE_KEY_CONFLICT")
+
+    row = KnowledgeDocument(
+        id=row_id,
+        tenant_id=tenant_id,
+        owner_user_id=owner_user_id,
+        scope=scope,
+        agent_id=agent_id,
+        title=title,
+        source_filename=filename,
+        mime_type=mime_type,
+        size_bytes=size_bytes,
+        sha256=digest,
+        storage_key=storage_key,
+        classification=classification,
+        allowed_purposes=purposes,
+        logical_document_id=logical_id,
+        version=1,
+        status=status,
+        effective_from=current if status == KnowledgeStatus.active.value else None,
+        expires_at=expires_at,
+        created_by=principal.user_id,
+        approved_by=principal.user_id if status == KnowledgeStatus.active.value else None,
+        supersedes_id=None,
+        created_at=current,
+        updated_at=current,
+    )
+    db.add(row)
+    _audit(
+        db,
+        tenant_id=principal.tenant_id,
+        actor_id=principal.user_id,
+        action="knowledge.uploaded",
+        document=row,
+    )
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        outcome = _resolve_blob_after_failed_commit(
+            db,
+            storage=storage,
+            storage_key=storage_key,
+            row_id=row_id,
+            tenant_id=tenant_id,
+            reason="knowledge_create_commit_failed",
+        )
+        if outcome == "PERSISTED":
+            persisted = db.get(KnowledgeDocument, row_id)
+            if persisted is not None:
+                return persisted
+        raise KnowledgeRepositoryError("KNOWLEDGE_CREATE_FAILED") from exc
+    return row
+
+
 def create_uploaded_document(
     db: Session,
     *,
@@ -592,6 +693,109 @@ def revoke_document(
     db.commit()
     db.refresh(document)
     return document
+
+
+def supersede_document_from_file(
+    db: Session,
+    *,
+    principal: Principal,
+    document_id: str,
+    title: str | None,
+    filename: str,
+    mime_type: str,
+    source_path: Path,
+    size_bytes: int,
+    digest: str,
+    classification: str | None,
+    allowed_purposes: list[str] | tuple[str, ...] | None,
+    agent_id: str | None,
+    expires_at: datetime | None,
+    storage: BlobStorage,
+) -> KnowledgeDocument:
+    current_document = get_managed_document(
+        db, document_id=document_id, principal=principal
+    )
+    assert_can_supersede(current_document, principal)
+    if current_document.status != KnowledgeStatus.active.value:
+        raise KnowledgeRepositoryError("KNOWLEDGE_SUPERSEDE_REQUIRES_ACTIVE")
+    purposes = normalize_purposes(
+        allowed_purposes
+        if allowed_purposes is not None
+        else list(current_document.allowed_purposes or [])
+    )
+    new_version = int(current_document.version) + 1
+    row_id = str(uuid.uuid4())
+    current = utcnow()
+    storage_key = _storage_key(
+        scope=current_document.scope,
+        tenant_id=current_document.tenant_id,
+        logical_document_id=current_document.logical_document_id,
+        version=new_version,
+        digest=digest,
+        filename=filename,
+    )
+    created_blob = storage.put_file_if_absent(
+        storage_key,
+        source_path,
+        content_type=mime_type,
+    )
+    if not created_blob:
+        raise KnowledgeRepositoryError("KNOWLEDGE_STORAGE_KEY_CONFLICT")
+
+    replacement = KnowledgeDocument(
+        id=row_id,
+        tenant_id=current_document.tenant_id,
+        owner_user_id=current_document.owner_user_id,
+        scope=current_document.scope,
+        agent_id=agent_id if agent_id is not None else current_document.agent_id,
+        title=title or current_document.title,
+        source_filename=filename,
+        mime_type=mime_type,
+        size_bytes=size_bytes,
+        sha256=digest,
+        storage_key=storage_key,
+        classification=classification or current_document.classification,
+        allowed_purposes=purposes,
+        logical_document_id=current_document.logical_document_id,
+        version=new_version,
+        status=KnowledgeStatus.active.value,
+        effective_from=current,
+        expires_at=expires_at if expires_at is not None else current_document.expires_at,
+        created_by=principal.user_id,
+        approved_by=principal.user_id,
+        supersedes_id=current_document.id,
+        created_at=current,
+        updated_at=current,
+    )
+    current_document.status = KnowledgeStatus.superseded.value
+    current_document.updated_at = current
+    db.add(replacement)
+    _audit(
+        db,
+        tenant_id=principal.tenant_id,
+        actor_id=principal.user_id,
+        action="knowledge.superseded",
+        document=replacement,
+        extra={"previous_knowledge_id": current_document.id},
+    )
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        outcome = _resolve_blob_after_failed_commit(
+            db,
+            storage=storage,
+            storage_key=storage_key,
+            row_id=row_id,
+            tenant_id=current_document.tenant_id,
+            reason="knowledge_supersede_commit_failed",
+        )
+        if outcome == "PERSISTED":
+            persisted = db.get(KnowledgeDocument, row_id)
+            if persisted is not None:
+                return persisted
+        raise KnowledgeRepositoryError("KNOWLEDGE_SUPERSEDE_FAILED") from exc
+    return replacement
 
 
 def supersede_document(

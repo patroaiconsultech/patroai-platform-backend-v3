@@ -12,6 +12,7 @@ from ..models import KnowledgeDocument, KnowledgeScope, KnowledgeStatus
 from .blob_storage import BlobStorageError, build_blob_storage
 from .document_context import DocumentContextError, extract_document_blob
 from .knowledge_repository import audit_knowledge_used
+from .large_document import LargeDocumentError, canonical_context_for_document
 
 
 logger = logging.getLogger("patroai.knowledge")
@@ -138,6 +139,7 @@ def build_knowledge_context(
     execution_id: str,
     thread_id: str | None,
     agent_id: str | None,
+    query_text: str = "",
 ) -> KnowledgeContextBundle | None:
     if not getattr(settings, "knowledge_plane_enabled", True):
         return None
@@ -179,15 +181,34 @@ def build_knowledge_context(
                 truncated = True
                 break
             try:
-                raw = storage.get(document.storage_key)
-                if hashlib.sha256(raw).hexdigest() != document.sha256:
-                    raise KnowledgeRetrievalError("KNOWLEDGE_SHA256_MISMATCH")
-                full_text = extract_document_blob(
-                    settings=settings,
-                    filename=document.source_filename,
-                    mime_type=document.mime_type,
-                    raw=raw,
-                )
+                full_text = None
+                canonical_used = False
+                if getattr(settings, "knowledge_selective_context_enabled", False):
+                    selected = canonical_context_for_document(
+                        db,
+                        storage=storage,
+                        document=document,
+                        tenant_id=tenant_id,
+                        user_id=str(user_id or ""),
+                        query=query_text,
+                        max_chars=min(per_file, remaining),
+                        top_k=int(getattr(settings, "knowledge_retrieval_top_k", 12)),
+                    )
+                    if selected is not None:
+                        full_text, canonical_chars, canonical_truncated = selected
+                        canonical_used = True
+                        if canonical_truncated:
+                            truncated = True
+                if full_text is None:
+                    raw = storage.get(document.storage_key)
+                    if hashlib.sha256(raw).hexdigest() != document.sha256:
+                        raise KnowledgeRetrievalError("KNOWLEDGE_SHA256_MISMATCH")
+                    full_text = extract_document_blob(
+                        settings=settings,
+                        filename=document.source_filename,
+                        mime_type=document.mime_type,
+                        raw=raw,
+                    )
             except BlobStorageError as exc:
                 if str(exc) == "BLOB_NOT_FOUND":
                     logger.error(
@@ -205,7 +226,7 @@ def build_knowledge_context(
                         str(exc),
                     )
                 continue
-            except (DocumentContextError, KnowledgeRetrievalError) as exc:
+            except (DocumentContextError, KnowledgeRetrievalError, LargeDocumentError) as exc:
                 logger.warning(
                     "KNOWLEDGE_SOURCE_SKIPPED knowledge_id=%s code=%s",
                     document.id,
@@ -304,6 +325,7 @@ def knowledge_context_messages(
     execution_id: str,
     thread_id: str | None,
     agent_id: str | None,
+    query_text: str = "",
 ) -> list[dict[str, str]]:
     bundle = build_knowledge_context(
         db,
@@ -314,5 +336,6 @@ def knowledge_context_messages(
         execution_id=execution_id,
         thread_id=thread_id,
         agent_id=agent_id,
+        query_text=query_text,
     )
     return list(bundle.messages) if bundle else []

@@ -419,6 +419,7 @@ def _history(
                 execution_id=execution_id,
                 thread_id=thread_id,
                 agent_id=agent_id,
+                query_text=latest_user_content,
             )
         )
     if context:
@@ -436,7 +437,7 @@ def _history(
 def health(settings: Settings=Depends(get_settings)):
     return {"status":"ok","release":"2.0.0a1","sha":settings.release_sha,"environment":settings.environment}
 
-EXPECTED_MIGRATION_HEAD = "006_knowledge_plane_hardening"
+EXPECTED_MIGRATION_HEAD = "007_large_document_b1_b2"
 
 
 @router.get("/ready")

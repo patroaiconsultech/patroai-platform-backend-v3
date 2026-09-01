@@ -157,6 +157,30 @@ class Settings(BaseSettings):
     knowledge_context_max_chars_per_file: int = Field(
         16_000, alias="PLATFORM_KNOWLEDGE_CONTEXT_MAX_CHARS_PER_FILE"
     )
+    large_document_pipeline_enabled: bool = Field(
+        False, alias="PLATFORM_LARGE_DOCUMENT_PIPELINE_ENABLED"
+    )
+    knowledge_large_document_max_upload_bytes: int = Field(
+        524_288_000, alias="PLATFORM_KNOWLEDGE_MAX_UPLOAD_BYTES"
+    )
+    knowledge_large_document_auto_process_bytes: int = Field(
+        32_000_000, alias="PLATFORM_KNOWLEDGE_AUTO_PROCESS_BYTES"
+    )
+    knowledge_large_document_max_pdf_pages: int = Field(
+        5_000, alias="PLATFORM_KNOWLEDGE_MAX_PDF_PAGES"
+    )
+    knowledge_chunk_target_chars: int = Field(
+        6_000, alias="PLATFORM_KNOWLEDGE_CHUNK_TARGET_CHARS"
+    )
+    knowledge_chunk_overlap_chars: int = Field(
+        500, alias="PLATFORM_KNOWLEDGE_CHUNK_OVERLAP_CHARS"
+    )
+    knowledge_retrieval_top_k: int = Field(
+        12, alias="PLATFORM_KNOWLEDGE_RETRIEVAL_TOP_K"
+    )
+    knowledge_selective_context_enabled: bool = Field(
+        False, alias="PLATFORM_KNOWLEDGE_SELECTIVE_CONTEXT_ENABLED"
+    )
 
     document_context_enabled: bool = Field(True, alias="PLATFORM_DOCUMENT_CONTEXT_ENABLED")
     document_context_max_files: int = Field(6, alias="PLATFORM_DOCUMENT_CONTEXT_MAX_FILES")
@@ -378,6 +402,22 @@ class Settings(BaseSettings):
             raise ValueError("TTS_RATE_LIMIT_INVALID")
         if not self.tts_cache_path.strip():
             raise ValueError("TTS_CACHE_PATH_REQUIRED")
+        if self.large_document_pipeline_enabled:
+            if self.knowledge_large_document_max_upload_bytes <= 0:
+                raise ValueError("KNOWLEDGE_MAX_UPLOAD_BYTES_INVALID")
+            if self.knowledge_large_document_auto_process_bytes < 0:
+                raise ValueError("KNOWLEDGE_AUTO_PROCESS_BYTES_INVALID")
+            if self.knowledge_large_document_max_pdf_pages <= 0:
+                raise ValueError("KNOWLEDGE_MAX_PDF_PAGES_INVALID")
+            if self.knowledge_chunk_target_chars < 1_000:
+                raise ValueError("KNOWLEDGE_CHUNK_TARGET_CHARS_INVALID")
+            if (
+                self.knowledge_chunk_overlap_chars < 0
+                or self.knowledge_chunk_overlap_chars >= self.knowledge_chunk_target_chars
+            ):
+                raise ValueError("KNOWLEDGE_CHUNK_OVERLAP_CHARS_INVALID")
+            if self.knowledge_retrieval_top_k <= 0:
+                raise ValueError("KNOWLEDGE_RETRIEVAL_TOP_K_INVALID")
         if self.stt_enabled and self.stt_provider == "disabled":
             raise ValueError("STT_PROVIDER_REQUIRED")
         if self.stt_max_upload_bytes <= 0:

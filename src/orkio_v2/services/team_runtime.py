@@ -328,6 +328,7 @@ def team_history(
                 execution_id=execution_id,
                 thread_id=thread_id,
                 agent_id=agent_id,
+                query_text=latest_user_content,
             )
         )
     if context:
