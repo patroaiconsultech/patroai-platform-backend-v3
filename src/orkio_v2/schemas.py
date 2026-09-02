@@ -3,6 +3,14 @@ from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field
 from typing import Literal
 
+class AdminVoiceAssignmentUpsert(BaseModel):
+    voice_catalog_id: str = Field(min_length=1, max_length=64)
+    locale: str = Field("pt-BR", min_length=2, max_length=24)
+    delivery_modes: list[Literal["REALTIME_STREAM", "MESSAGE_PLAYBACK", "VOICE_MESSAGE"]] = Field(default_factory=list)
+    presentation_label: Literal["MASCULINA", "FEMININA", "NEUTRA", "NAO_DEFINIDA"] = "NAO_DEFINIDA"
+    timbre_label: str | None = Field(default=None, max_length=80)
+    energy_label: str | None = Field(default=None, max_length=80)
+
 class ThreadCreate(BaseModel):
     title: str = Field("Nova conversa", max_length=240)
 

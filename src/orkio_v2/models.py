@@ -1,6 +1,6 @@
 import enum, uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, DateTime, ForeignKey, Boolean, Integer, Text, UniqueConstraint, CheckConstraint, JSON
+from sqlalchemy import String, DateTime, ForeignKey, Boolean, Integer, Text, UniqueConstraint, CheckConstraint, Index, JSON, text
 from sqlalchemy.orm import Mapped, mapped_column
 from .database import Base
 
@@ -448,6 +448,52 @@ class AuditEvent(Base):
     outcome: Mapped[str] = mapped_column(String(30))
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+class VoiceCatalogEntry(Base):
+    __tablename__ = "voice_catalog_entries"
+    __table_args__ = (UniqueConstraint("provider_key", "provider_voice_id", name="uq_voice_catalog_provider_voice"),)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uid)
+    provider_key: Mapped[str] = mapped_column(String(80), index=True)
+    provider_voice_id: Mapped[str] = mapped_column(String(120))
+    display_name: Mapped[str] = mapped_column(String(120))
+    provider_model: Mapped[str] = mapped_column(String(120))
+    source_type: Mapped[str] = mapped_column(String(32), default="BUILT_IN")
+    license_label: Mapped[str] = mapped_column(String(160), default="PROVIDER_TERMS")
+    cost_class: Mapped[str] = mapped_column(String(40), default="API_USAGE_BILLED")
+    provenance_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    catalog_version: Mapped[str] = mapped_column(String(64), default="1")
+    supported_locales: Mapped[list] = mapped_column(JSON, default=list)
+    delivery_modes: Mapped[list] = mapped_column(JSON, default=list)
+    curation_status: Mapped[str] = mapped_column(String(32), default="REVIEW_REQUIRED", index=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+
+class AgentVoiceAssignment(Base):
+    """Only ACTIVE + VALIDATED overrides the existing ENV binding."""
+    __tablename__ = "agent_voice_assignments"
+    __table_args__ = (
+        Index("uq_agent_voice_assignment_active", "tenant_id", "agent_slug", "locale", unique=True, postgresql_where=text("active")),
+        Index("uq_agent_voice_unique_active", "tenant_id", "voice_catalog_id", unique=True, postgresql_where=text("active")),
+        CheckConstraint("assignment_state IN ('DRAFT','ACTIVE','DISABLED')", name="ck_agent_voice_assignment_state"),
+        CheckConstraint("validation_status IN ('UNVALIDATED','VALIDATED','FAILED')", name="ck_agent_voice_validation_status"),
+        CheckConstraint("NOT (assignment_state = 'ACTIVE' AND validation_status != 'VALIDATED')", name="ck_agent_voice_active_requires_validated"),
+    )
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    agent_slug: Mapped[str] = mapped_column(String(80), index=True)
+    voice_catalog_id: Mapped[str] = mapped_column(ForeignKey("voice_catalog_entries.id", ondelete="RESTRICT"), index=True)
+    locale: Mapped[str] = mapped_column(String(24), default="pt-BR")
+    delivery_modes: Mapped[list] = mapped_column(JSON, default=list)
+    presentation_label: Mapped[str] = mapped_column(String(24), default="NAO_DEFINIDA")
+    timbre_label: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    energy_label: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    assignment_state: Mapped[str] = mapped_column(String(24), default="DRAFT", index=True)
+    validation_status: Mapped[str] = mapped_column(String(24), default="UNVALIDATED", index=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
+    updated_by: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
 
 
 class UserExperienceProfile(Base):

@@ -4,8 +4,12 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from sqlalchemy import inspect, select
+from sqlalchemy.orm import Session
+
 from ..agents.registry import AgentNotFound, resolve_agent_by_id
 from ..config import Settings
+from ..models import AgentVoiceAssignment, VoiceCatalogEntry
 
 
 class VoiceBindingError(RuntimeError):
@@ -46,12 +50,28 @@ def _bindings(settings: Settings) -> dict[str, Any]:
     return raw
 
 
+def _catalog_profile(agent_id: str, locale: str, settings: Settings, *, delivery_mode: str, db: Session | None, tenant_id: str | None) -> VoiceProfile | None:
+    if db is None or not tenant_id or not inspect(db.get_bind()).has_table("agent_voice_assignments"):
+        return None
+    assignment = db.scalar(select(AgentVoiceAssignment).where(AgentVoiceAssignment.tenant_id == tenant_id, AgentVoiceAssignment.agent_slug == agent_id, AgentVoiceAssignment.locale == locale, AgentVoiceAssignment.active.is_(True), AgentVoiceAssignment.assignment_state == "ACTIVE"))
+    if assignment is None:
+        return None
+    if assignment.validation_status != "VALIDATED":
+        raise VoiceBindingError("VOICE_PROFILE_NOT_VALIDATED", validation_scope="admin_assignment")
+    entry = db.get(VoiceCatalogEntry, assignment.voice_catalog_id)
+    if entry is None or not entry.active or entry.curation_status != "APPROVED" or locale not in set(entry.supported_locales or []) or delivery_mode not in set(entry.delivery_modes or []):
+        raise VoiceBindingError("VOICE_PROVIDER_NOT_AVAILABLE")
+    return VoiceProfile(agent_id=agent_id, binding_id=f"admin:{assignment.id}", binding_version=str(assignment.version), locale=locale, provider=entry.provider_key, voice_id=entry.provider_voice_id, model=entry.provider_model, source_type="CURATED_PRESET", delivery_mode=delivery_mode, provider_profile_version="catalog")
+
+
 def resolve_voice_profile(
     agent_id: str,
     locale: str,
     settings: Settings,
     *,
     delivery_mode: str,
+    db: Session | None = None,
+    tenant_id: str | None = None,
 ) -> VoiceProfile:
     if delivery_mode not in _ALLOWED_DELIVERY_MODES:
         raise VoiceBindingError("VOICE_DELIVERY_MODE_NOT_SUPPORTED")
@@ -59,6 +79,10 @@ def resolve_voice_profile(
         agent = resolve_agent_by_id(agent_id)
     except AgentNotFound as exc:
         raise VoiceBindingError("VOICE_BINDING_NOT_FOUND") from exc
+
+    catalog_profile = _catalog_profile(agent.slug, locale, settings, delivery_mode=delivery_mode, db=db, tenant_id=tenant_id)
+    if catalog_profile is not None:
+        return catalog_profile
 
     binding_id = (agent.voice_binding_id or "").strip()
     if not binding_id:

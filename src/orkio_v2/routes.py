@@ -283,6 +283,114 @@ def admin_agents(
     ]
 
 
+@router.get("/admin/voice-catalog")
+def admin_voice_catalog(
+    p: Principal = Depends(require_provisioned_superadmin),
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+):
+    _require_console_superadmin(p, settings)
+    rows = db.scalars(select(VoiceCatalogEntry).order_by(VoiceCatalogEntry.provider_key, VoiceCatalogEntry.display_name)).all()
+    return [{
+        "id": row.id,
+        "provider_key": row.provider_key,
+        "provider_voice_id": row.provider_voice_id,
+        "display_name": row.display_name,
+        "provider_model": row.provider_model,
+        "source_type": row.source_type,
+        "license_label": row.license_label,
+        "cost_class": row.cost_class,
+        "provenance_url": row.provenance_url,
+        "catalog_version": row.catalog_version,
+        "supported_locales": row.supported_locales,
+        "delivery_modes": row.delivery_modes,
+        "curation_status": row.curation_status,
+        "active": row.active,
+    } for row in rows]
+
+
+@router.get("/admin/agent-voice-assignments")
+def admin_agent_voice_assignments(
+    p: Principal = Depends(require_provisioned_superadmin),
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+):
+    _require_console_superadmin(p, settings)
+    rows = db.execute(
+        select(AgentVoiceAssignment, VoiceCatalogEntry)
+        .join(VoiceCatalogEntry, VoiceCatalogEntry.id == AgentVoiceAssignment.voice_catalog_id)
+        .where(AgentVoiceAssignment.tenant_id == p.tenant_id)
+        .order_by(AgentVoiceAssignment.agent_slug, AgentVoiceAssignment.version.desc())
+    ).all()
+    return [{
+        "id": assignment.id, "agent_slug": assignment.agent_slug, "locale": assignment.locale,
+        "voice_catalog_id": voice.id, "voice_display_name": voice.display_name,
+        "provider_key": voice.provider_key, "assignment_state": assignment.assignment_state,
+        "validation_status": assignment.validation_status, "active": assignment.active,
+        "presentation_label": assignment.presentation_label, "timbre_label": assignment.timbre_label,
+        "energy_label": assignment.energy_label, "version": assignment.version,
+    } for assignment, voice in rows]
+
+
+@router.put("/admin/agents/{agent_slug}/voice-assignment")
+def admin_upsert_agent_voice_assignment(
+    agent_slug: str,
+    body: AdminVoiceAssignmentUpsert,
+    p: Principal = Depends(require_provisioned_superadmin),
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+):
+    _require_console_superadmin(p, settings)
+    if not any(agent.slug == agent_slug for agent in list_agents()):
+        raise HTTPException(404, "AGENT_NOT_FOUND")
+    voice = db.get(VoiceCatalogEntry, body.voice_catalog_id)
+    if not voice or not voice.active or voice.curation_status != "APPROVED":
+        raise HTTPException(409, "VOICE_NOT_ELIGIBLE")
+    duplicate = db.scalar(select(AgentVoiceAssignment).where(
+        AgentVoiceAssignment.tenant_id == p.tenant_id,
+        AgentVoiceAssignment.voice_catalog_id == voice.id,
+        AgentVoiceAssignment.active.is_(True),
+        AgentVoiceAssignment.agent_slug != agent_slug,
+    ))
+    if duplicate:
+        raise HTTPException(409, "VOICE_ALREADY_ASSIGNED")
+    prior = db.scalar(select(AgentVoiceAssignment).where(
+        AgentVoiceAssignment.tenant_id == p.tenant_id,
+        AgentVoiceAssignment.agent_slug == agent_slug,
+        AgentVoiceAssignment.locale == body.locale,
+        AgentVoiceAssignment.active.is_(True),
+    ))
+    next_version = 1
+    if prior:
+        prior.active = False
+        prior.assignment_state = "DISABLED"
+        prior.updated_by = p.user_id
+        next_version = prior.version + 1
+    assignment = AgentVoiceAssignment(
+        tenant_id=p.tenant_id, agent_slug=agent_slug, voice_catalog_id=voice.id,
+        locale=body.locale, delivery_modes=body.delivery_modes,
+        presentation_label=body.presentation_label, timbre_label=body.timbre_label,
+        energy_label=body.energy_label, assignment_state="DRAFT",
+        validation_status="UNVALIDATED", active=True, version=next_version,
+        created_by=p.user_id, updated_by=p.user_id,
+    )
+    db.add(assignment)
+    db.flush()
+    db.add(AuditEvent(tenant_id=p.tenant_id, actor_id=p.user_id,
+        action="ADMIN_AGENT_VOICE_ASSIGNMENT_DRAFT", resource_type="agent_voice_assignment",
+        resource_id=assignment.id, outcome="SUCCESS", metadata_json={
+            "agent_slug": agent_slug, "voice_catalog_id": voice.id,
+            "assignment_state": "DRAFT", "validation_status": "UNVALIDATED"}))
+    db.commit()
+    return {"id": assignment.id, "agent_slug": assignment.agent_slug,
+        "voice_catalog_id": voice.id, "voice_display_name": voice.display_name,
+        "provider_key": voice.provider_key, "locale": assignment.locale,
+        "delivery_modes": assignment.delivery_modes, "presentation_label": assignment.presentation_label,
+        "timbre_label": assignment.timbre_label, "energy_label": assignment.energy_label,
+        "assignment_state": assignment.assignment_state, "validation_status": assignment.validation_status,
+        "active": assignment.active, "version": assignment.version}
+
+
 @router.get("/admin/teams")
 def admin_teams(
     p: Principal = Depends(require_provisioned_superadmin),
