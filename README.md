@@ -1,57 +1,36 @@
-# ORKIO v2 Premium Backend — Functional Pre-OIDC Candidate
+# PatroAI V3 — STAGING 008 — Local Terminal Auth Recovery V2
 
-Secure modular monolith for the Plataforma Efatà 777 functional vertical slice.
+**State:** `PROPOSAL_ONLY / GITHUB_READY / NOT_DEPLOY_AUTHORIZED`  
+**Reference platform:** `LINUX_POSIX`  
+**Frozen source candidate SHA-256:** `f6b63678402fc16108e6bfaadebdbb5d82585765e03741518fa92fc09266b4d0`
 
-Implemented:
+This repository is an audit surface for the STAGING 008 Local Terminal Auth Recovery V2.
+It is intentionally prepared for **branch + pull request + human review**, not direct deployment.
 
-- strict liveness and readiness separation;
-- PostgreSQL URL normalization for Psycopg 3;
-- Alembic runtime files included in the image;
-- tenant-scoped thread creation, listing and history;
-- provisioned-principal enforcement;
-- owner/moderator invitation authorization;
-- governed attachment upload;
-- canonical ORKIO authorship in JSON, SSE and persistence;
-- OpenAI-compatible LLM integration with configurable API base;
-- terminal SSE contract: `status`, `chunk`, optional `error`, always `done`;
-- OIDC introspection with active, issuer, audience, user and tenant checks;
-- preview-first identity bootstrap script.
+## What is proven locally
 
-## Local validation
+- V2 source candidate: frozen and hash-bound.
+- Local fake-CLI suite: PASS_LOCAL in the embedded evidence.
+- Final artifact integrity: PASS_EM_ARTEFATO in the embedded audit evidence.
+- Frozen Phase A bytes are embedded and hash-bound.
 
-```bash
-python -m venv .venv
-. .venv/bin/activate
-pip install -e '.[test]'
-pytest
-```
+## What is NOT proven
 
-## Migrations
+- Railway authentication/runtime behavior.
+- `PASS_CHANNEL`.
+- staging runtime.
+- database state.
+- migration 008.
+- deploy or production.
 
-The Docker image contains `alembic.ini` and `migrations/`. Use a controlled
-Railway pre-deploy command:
+## Repository rules
 
-```bash
-alembic upgrade head
-```
+1. Upload to a **new protected branch**, never directly to the protected default branch.
+2. Open a Pull Request.
+3. Require human review.
+4. Enable GitHub secret scanning / push protection where available.
+5. Enable dependency/code scanning appropriate to the repository plan.
+6. Do not enable auto-deploy from this branch or PR.
+7. Any byte change invalidates the hashes and requires a new AO-01 candidate.
 
-Do not run migrations against SQLite in production.
-
-## Identity bootstrap
-
-Preview is the default:
-
-```bash
-python scripts/bootstrap_identity.py \
-  --tenant-id '<tenant_id claim>' \
-  --tenant-name 'Efatà 777' \
-  --user-id '<sub claim>' \
-  --external-subject '<sub claim>' \
-  --email 'owner@example.com' \
-  --display-name 'Owner'
-```
-
-Writing requires both `--apply` and `--confirm APPLY_BOOTSTRAP`.
-
-Production must remain `external_required` until the OIDC provider and SPA
-client are fully configured and tested.
+See `AUDIT_INDEX.md`, `governance/GITHUB_GATE.md`, and `governance/ROLLBACK.md`.

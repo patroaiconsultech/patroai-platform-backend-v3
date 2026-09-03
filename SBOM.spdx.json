@@ -1,0 +1,387 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "STAGING_008_GITHUB_READY_REPOSITORY",
+  "documentNamespace": "https://patroai.invalid/spdx/staging-008/20260903T182910Z",
+  "creationInfo": {
+    "created": "2026-09-03T18:29:10Z",
+    "creators": [
+      "Tool: OpenAI-AO01-artifact-builder"
+    ]
+  },
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package",
+      "name": "STAGING_008_LOCAL_TERMINAL_AUTH_RECOVERY_V2",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": true,
+      "versionInfo": "f6b63678402fc16108e6bfaadebdbb5d82585765e03741518fa92fc09266b4d0",
+      "supplier": "NOASSERTION"
+    }
+  ],
+  "files": [
+    {
+      "SPDXID": "SPDXRef-File-.github-CODEOWNERS",
+      "fileName": "./.github/CODEOWNERS",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "cedde66b91eb8b7878e4718d7dd542c5810b325bd8d8e8f65043b39a404f8cd2"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-.gitignore",
+      "fileName": "./.gitignore",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "6beb3d9def043b17408ec76ada9fe6211ff26607474d45d90b0fb683126994fa"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-AUDIT-INDEX.md",
+      "fileName": "./AUDIT_INDEX.md",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "68ffd585bb9c1d4cc3cea6a3d915518a9a3fb063ac92b9e04387c26cc28d27a6"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-MANIFEST.json",
+      "fileName": "./MANIFEST.json",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "2526651b0eb0aa20214c3caa53b300903898cb8d1279fb16e3dbc876e0387c6f"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-README.md",
+      "fileName": "./README.md",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "86839ee9e44ab1dc97a3fbac89acdb7e86cf50394c53571c5762cf315ce9d548"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-SHA256SUMS.txt",
+      "fileName": "./SHA256SUMS.txt",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "d7ff7666ca59789a2f46a146b61e7b9ce6d1b0e08639c81dc5ad0eec92047ccd"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-docs-CONTRACT-PACK.md",
+      "fileName": "./docs/CONTRACT_PACK.md",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "465b27de351b06e36a6c92cdb17cb1b29557f029b05ae17994447eb56270b4c1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-docs-DIFF-PREVIEW.md",
+      "fileName": "./docs/DIFF_PREVIEW.md",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "6dd4cd9cd278f9784d8091d2f9dfce4c8ec77943ff9ba25856fa8d3668cdb75d"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-docs-FUTURE-SMOKE-PLAN.md",
+      "fileName": "./docs/FUTURE_SMOKE_PLAN.md",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "6a0faac89b0502caebf7f908198f0f535cbaa88b3a8b08e99fc24a1fb5ed127c"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-docs-GATE-RECORD.md",
+      "fileName": "./docs/GATE_RECORD.md",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "42290f51bd7895573cb30b358246892f0db688ea4275a4f64272ab62493ab2e8"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-docs-REAUDIT-STATUS.md",
+      "fileName": "./docs/REAUDIT_STATUS.md",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "8268631f944ca95faf8976f26449751a887addb9874f93a1ad833e1bf2043132"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-docs-ROLLBACK-PLAN.md",
+      "fileName": "./docs/ROLLBACK_PLAN.md",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "d083fa38b5d93238a9e0a4cd23b6d3091e222c8b166aa2aac0d7cbc01fc5da95"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-evidence-LOCAL-TEST-RESULTS.json",
+      "fileName": "./evidence/LOCAL_TEST_RESULTS.json",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "a2deb306a8e1c5f5d7973059852389a14da51dff6f994c222644de400dc57716"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-frozen-STAGING-008-CHANNEL-DIAGNOSTIC-PREMIUM-FINAL-BUNDLE.zip",
+      "fileName": "./frozen/STAGING_008_CHANNEL_DIAGNOSTIC_PREMIUM_FINAL_BUNDLE.zip",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "0c6538dd7df26d6b8ac776a0a9cd87aedf2b6fc5c353665fc772fd4cb77351e9"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-governance-GITHUB-GATE.md",
+      "fileName": "./governance/GITHUB_GATE.md",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "df5e63c50e346813314490aca77dceb536f9382e51a4e941787fd07d6836988e"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-governance-ROLLBACK.md",
+      "fileName": "./governance/ROLLBACK.md",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "449ef05c635ce384930907172b9438d995e1d9fb1d6d9e08f93ecc67b931c815"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-governance-SECURITY-REQUIREMENTS.md",
+      "fileName": "./governance/SECURITY_REQUIREMENTS.md",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "394b3c20f87d522d275ec237594405cfd3c5c9cd16ecdc034e2a46823b0e50b8"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-payload-assemble-with-frozen.py",
+      "fileName": "./payload/assemble_with_frozen.py",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "9bc90faf75852649838b0325e57346e5d9975381958a7fe579e440cac2abb007"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-payload-entrypoint.sh",
+      "fileName": "./payload/entrypoint.sh",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "7cad8cc9e425210f13f298c14ff755f0c0fbcbd573992efd73eaaaaaaa6279a9"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-payload-fake-railway.py",
+      "fileName": "./payload/fake_railway.py",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "71879ab9d1d30cd44a6694412a1e5f6c45f0fcbda841987d0193ca4d9e695fb5"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-payload-preflight.py",
+      "fileName": "./payload/preflight.py",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "b36f5f50341357efb668fcc0f62e633d773485f19ca84dedd4de1ac2c962ea34"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-payload-runner.py",
+      "fileName": "./payload/runner.py",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "a7bf83ec56eb1332f7f0c44c41267425ceec5004b37a24174c1daf63f931810d"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-scripts-verify-repository.py",
+      "fileName": "./scripts/verify_repository.py",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "329b9c2d93a5a1775359f45152a6205628919634d196ef44967ee6bc68379f14"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-File-tests-test-v2.py",
+      "fileName": "./tests/test_v2.py",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "b10c1ea660a9867dee7ea586144eb2e124ced288bac413569c938772647f78b2"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-.github-CODEOWNERS"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-.gitignore"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-AUDIT-INDEX.md"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-MANIFEST.json"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-README.md"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-SHA256SUMS.txt"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-docs-CONTRACT-PACK.md"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-docs-DIFF-PREVIEW.md"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-docs-FUTURE-SMOKE-PLAN.md"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-docs-GATE-RECORD.md"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-docs-REAUDIT-STATUS.md"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-docs-ROLLBACK-PLAN.md"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-evidence-LOCAL-TEST-RESULTS.json"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-frozen-STAGING-008-CHANNEL-DIAGNOSTIC-PREMIUM-FINAL-BUNDLE.zip"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-governance-GITHUB-GATE.md"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-governance-ROLLBACK.md"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-governance-SECURITY-REQUIREMENTS.md"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-payload-assemble-with-frozen.py"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-payload-entrypoint.sh"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-payload-fake-railway.py"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-payload-preflight.py"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-payload-runner.py"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-scripts-verify-repository.py"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-tests-test-v2.py"
+    }
+  ]
+}
