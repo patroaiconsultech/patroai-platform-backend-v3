@@ -1,9 +1,9 @@
-import asyncio, hashlib, json, logging
+import asyncio, hashlib, json, logging, threading
 from pathlib import Path, PurePosixPath
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select, text, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 from .auth import Principal, require_principal
 from .config import Settings, get_settings
 from .database import Base, get_db, engine
@@ -78,11 +78,55 @@ from .services.internal_consultation import (
 )
 from .services.python_tool import PythonToolError, execute_python
 from .services.external_read_tool import ExternalReadError, read_external_url
+from .services.audit_invocation_directive import looks_like_audit_directive
+from .services.audit_invocation_rate_limit import AuditDirectiveAbuseLimiter
+from .services.audit_invocation_service import (
+    AuditInvocationError,
+    AuditInvocationOutcome,
+    GovernedAuditInvocationService,
+)
 
 router=APIRouter(prefix="/api/v2")
 artifact_gate_logger=logging.getLogger("orkio.artifact_gate")
 internal_consultation_logger=logging.getLogger("orkio.internal_consultation")
 llm_runtime_logger=logging.getLogger("orkio.llm_runtime")
+_audit_directive_abuse_limiters: dict[int, AuditDirectiveAbuseLimiter] = {}
+_audit_directive_abuse_limiters_lock = threading.Lock()
+
+
+def _audit_session_factory(db: Session):
+    return sessionmaker(bind=db.get_bind(), expire_on_commit=False)
+
+
+def _audit_directive_abuse_limiter(policy: CapabilityPolicy) -> AuditDirectiveAbuseLimiter:
+    limit = int(policy.audit_directive_user_rate_limit)
+    with _audit_directive_abuse_limiters_lock:
+        limiter = _audit_directive_abuse_limiters.get(limit)
+        if limiter is None:
+            limiter = AuditDirectiveAbuseLimiter(
+                window_seconds=60,
+                per_user_limit=limit,
+            )
+            _audit_directive_abuse_limiters[limit] = limiter
+        return limiter
+
+
+def _audit_invocation_service(db: Session, settings: Settings) -> GovernedAuditInvocationService:
+    policy = CapabilityPolicy.from_env()
+    return GovernedAuditInvocationService(
+        session_factory=_audit_session_factory(db),
+        settings=settings,
+        project_root=Path(__file__).resolve().parents[2],
+        policy=policy,
+        directive_abuse_limiter=_audit_directive_abuse_limiter(policy),
+    )
+
+
+def _audit_error_detail(exc: AuditInvocationError) -> dict[str, object]:
+    detail: dict[str, object] = {"code": exc.code}
+    if exc.audit_reference is not None:
+        detail["audit"] = exc.audit_reference
+    return detail
 
 
 @router.post("/access/validate")
@@ -545,7 +589,7 @@ def _history(
 def health(settings: Settings=Depends(get_settings)):
     return {"status":"ok","release":"2.0.0a1","sha":settings.release_sha,"environment":settings.environment}
 
-EXPECTED_MIGRATION_HEAD = "008_admin_voice_catalog"
+EXPECTED_MIGRATION_HEAD = "009_audit_evidence_ledger"
 
 
 @router.get("/ready")
@@ -820,6 +864,7 @@ async def send_message(thread_id:str,payload:MessageCreate,p:Principal=Depends(r
         requested_target=effective_agent,
         channel=RuntimeChannel.CHAT_JSON,
     )
+    audit_candidate = looks_like_audit_directive(payload.content)
     observer=ExecutionObserver.from_turn(turn,execution_engine=execution.execution_engine.value)
     observer.start()
     try:
@@ -830,22 +875,44 @@ async def send_message(thread_id:str,payload:MessageCreate,p:Principal=Depends(r
 
     user=Message(tenant_id=p.tenant_id,thread_id=thread_id,author_type="user",author_id=p.user_id,content=payload.content)
     db.add(user); db.commit()
+
+    audit_outcome: AuditInvocationOutcome | None = None
+    if audit_candidate:
+        try:
+            audit_outcome = _audit_invocation_service(db, settings).invoke_if_directive(
+                message=payload.content,
+                turn=turn,
+                principal_roles=p.roles,
+            )
+        except AuditInvocationError as exc:
+            observer.fail(exc.code)
+            raise HTTPException(exc.http_status, detail=_audit_error_detail(exc)) from exc
+
     hyper_surface = execution.resolved_target == "orkio"
     profile = (
         profile_for(db, tenant_id=p.tenant_id, user_id=p.user_id)
         if hyper_surface
         else None
     )
-    github_messages = await github_context_messages(
-        settings,
-        message=payload.content,
-        is_admin=is_allowlisted_admin(p, settings),
-    )
-    capability_messages = await runtime_capability_messages(
-        message=payload.content,
-        roles=p.roles,
-    )
-    runtime_system_messages = list(github_messages) + list(capability_messages)
+    if audit_candidate:
+        # Governed audit V1 is a single-capability, network=false path. Do not
+        # run GitHub/Python/external-read side paths for the same directive.
+        github_messages = []
+        capability_messages = []
+        runtime_system_messages = (
+            [audit_outcome.system_message()] if audit_outcome is not None else []
+        )
+    else:
+        github_messages = await github_context_messages(
+            settings,
+            message=payload.content,
+            is_admin=is_allowlisted_admin(p, settings),
+        )
+        capability_messages = await runtime_capability_messages(
+            message=payload.content,
+            roles=p.roles,
+        )
+        runtime_system_messages = list(github_messages) + list(capability_messages)
     if hyper_surface:
         runtime_system_messages.insert(
             0,
@@ -893,7 +960,7 @@ async def send_message(thread_id:str,payload:MessageCreate,p:Principal=Depends(r
     assistant,envelope=persist_agent_response(db,turn=turn,content=answer)
     observer.persisted(message_id=assistant.id)
     observer.complete()
-    return {
+    response_payload = {
         "message_id":assistant.id,
         "execution_id":turn.execution_id,
         "agent_id":envelope.agent_id,
@@ -915,6 +982,9 @@ async def send_message(thread_id:str,payload:MessageCreate,p:Principal=Depends(r
         },
         "response":envelope_payload(envelope),
     }
+    if audit_outcome is not None:
+        response_payload["audit"] = audit_outcome.reference()
+    return response_payload
 
 @router.post("/threads/{thread_id}/stream")
 async def stream_message(thread_id:str,payload:MessageCreate,p:Principal=Depends(require_provisioned_principal),
@@ -940,6 +1010,7 @@ async def stream_message(thread_id:str,payload:MessageCreate,p:Principal=Depends
         requested_target=effective_agent,
         channel=RuntimeChannel.CHAT_SSE,
     )
+    audit_candidate = looks_like_audit_directive(payload.content)
 
     internal_contributions = ()
     internal_consultation_plans = ()
@@ -952,7 +1023,7 @@ async def stream_message(thread_id:str,payload:MessageCreate,p:Principal=Depends
     agent=execution.resolved_target
     tenant_id=p.tenant_id
     user_id=p.user_id
-    artifact_intent=detect_artifact_intent(payload.content)
+    artifact_intent=None if audit_candidate else detect_artifact_intent(payload.content)
     artifact_allowed=bool(
         artifact_intent
         and settings.artifacts_enabled
@@ -980,24 +1051,39 @@ async def stream_message(thread_id:str,payload:MessageCreate,p:Principal=Depends
             ),
         )
 
+    audit_outcome: AuditInvocationOutcome | None = None
+    audit_error: AuditInvocationError | None = None
     if configured:
         db.add(Message(tenant_id=tenant_id,thread_id=thread_id,author_type="user",author_id=user_id,content=payload.content))
         db.commit()
+        if audit_candidate:
+            try:
+                audit_outcome = _audit_invocation_service(db, settings).invoke_if_directive(
+                    message=payload.content,
+                    turn=turn,
+                    principal_roles=p.roles,
+                )
+            except AuditInvocationError as exc:
+                audit_error = exc
         hyper_surface = execution.resolved_target == "orkio"
         profile = (
             profile_for(db, tenant_id=tenant_id, user_id=user_id)
             if hyper_surface
             else None
         )
-        github_messages = await github_context_messages(
-            settings,
-            message=payload.content,
-            is_admin=is_allowlisted_admin(p, settings),
-        )
-        capability_messages = await runtime_capability_messages(
-            message=payload.content,
-            roles=p.roles,
-        )
+        if audit_candidate:
+            github_messages = []
+            capability_messages = []
+        else:
+            github_messages = await github_context_messages(
+                settings,
+                message=payload.content,
+                is_admin=is_allowlisted_admin(p, settings),
+            )
+            capability_messages = await runtime_capability_messages(
+                message=payload.content,
+                roles=p.roles,
+            )
         if hyper_surface and settings.internal_agent_consultation_enabled:
             try:
                 internal_contributions, internal_consultation_plans = (
@@ -1018,6 +1104,8 @@ async def stream_message(thread_id:str,payload:MessageCreate,p:Principal=Depends
             + internal_contribution_messages(internal_contributions)
             + list(capability_messages)
         )
+        if audit_outcome is not None:
+            runtime_system_messages.append(audit_outcome.system_message())
         if hyper_surface:
             runtime_system_messages.insert(
                 0,
@@ -1088,6 +1176,18 @@ async def stream_message(thread_id:str,payload:MessageCreate,p:Principal=Depends
             yield sse_event(terminal(RuntimeEventType.DONE,status="failed"))
             return
 
+        if audit_error is not None:
+            observer.fail(audit_error.code)
+            error_data: dict[str, object] = {"code": audit_error.code}
+            if audit_error.audit_reference is not None:
+                error_data["audit"] = audit_error.audit_reference
+            yield sse_event(event(RuntimeEventType.ERROR, **error_data))
+            yield sse_event(terminal(RuntimeEventType.DONE,status="failed"))
+            return
+
+        status_data: dict[str, object] = {}
+        if audit_outcome is not None:
+            status_data["audit"] = audit_outcome.reference()
         yield sse_event(event(
             RuntimeEventType.STATUS,
             status="started",
@@ -1096,6 +1196,7 @@ async def stream_message(thread_id:str,payload:MessageCreate,p:Principal=Depends
             ownership_locked=turn.ownership_locked,
             chat_availability=availability.chat.status.value,
             internal_consultation=bool(internal_contributions),
+            **status_data,
         ))
         parts:list[str]=[]
         try:
@@ -1232,6 +1333,8 @@ async def stream_message(thread_id:str,payload:MessageCreate,p:Principal=Depends
             ownership_locked=execution.ownership_locked,
             response=envelope_payload(envelope),
         )
+        if audit_outcome is not None:
+            done_payload["audit"] = audit_outcome.reference()
         if generated_artifact is not None:
             done_payload["artifact"]=artifact_payload(generated_artifact)
         if artifact_error_code is not None:

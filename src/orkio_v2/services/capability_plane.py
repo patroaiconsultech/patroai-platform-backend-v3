@@ -17,6 +17,7 @@ def capability_manifest_message(
     manifest = policy.manifest(privileged=privileged)
     py = manifest["python"]
     ext = manifest["external_read"]
+    audit = manifest["audit"]
     return {
         "role": "system",
         "content": (
@@ -25,6 +26,11 @@ def capability_manifest_message(
             "python_network=false python_filesystem=false\n"
             f"external_read={str(bool(ext['enabled'])).lower()} "
             f"allowed_domains={','.join(ext['allowed_domains']) or '[none]'}\n"
+            f"audit_file_inspect={str(bool(audit['file_inspect'])).lower()} "
+            f"audit_archive_inspect={str(bool(audit['archive_inspect'])).lower()} "
+            f"audit_runtime_file_sha256={str(bool(audit['runtime_file_sha256'])).lower()} "
+            f"audit_runtime_search_marker={str(bool(audit['runtime_search_marker'])).lower()} "
+            "audit_network=false audit_write=false\n"
             "external_write=false proposal_only=true\n"
             "Generate source code as text when requested. "
             "Only claim Python execution or external-link reading when a trusted tool result "

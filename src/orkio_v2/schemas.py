@@ -1,6 +1,7 @@
+import unicodedata
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from typing import Literal
 
 class AdminVoiceAssignmentUpsert(BaseModel):
@@ -179,3 +180,88 @@ class NativeSessionRecordOut(BaseModel):
     user_agent: str
     ip_prefix: str
     mfa_verified: bool = False
+
+class _AuditRequestBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+def _validate_audit_marker(value: str | None) -> str | None:
+    if value is None:
+        return None
+    raw = value.encode("utf-8")
+    if not raw or len(raw) > 512:
+        raise ValueError("AUDIT_MARKER_BOUNDS_INVALID")
+    if any(unicodedata.category(ch) == "Cc" for ch in value):
+        raise ValueError("AUDIT_MARKER_CONTROL_CHAR_FORBIDDEN")
+    return value
+
+
+class AuditFileInspectRequest(_AuditRequestBase):
+    root_id: str = Field(min_length=1, max_length=64)
+    relative_path: str = Field(min_length=1, max_length=1024)
+    operation: Literal["metadata", "read_text", "search_marker"]
+    offset: int = Field(default=0, ge=0, le=100_000_000)
+    max_bytes: int = Field(default=16_000, ge=1, le=64_000)
+    marker: str | None = None
+    max_matches: int = Field(default=256, ge=1, le=256)
+
+    @field_validator("marker")
+    @classmethod
+    def validate_marker(cls, value: str | None) -> str | None:
+        return _validate_audit_marker(value)
+
+    @model_validator(mode="after")
+    def validate_operation_contract(self):
+        if self.operation == "search_marker" and self.marker is None:
+            raise ValueError("AUDIT_MARKER_REQUIRED")
+        if self.operation != "search_marker" and self.marker is not None:
+            raise ValueError("AUDIT_MARKER_NOT_ALLOWED")
+        return self
+
+
+class AuditArchiveInspectRequest(_AuditRequestBase):
+    artifact_id: str | None = Field(default=None, min_length=1, max_length=160)
+    root_id: str | None = Field(default=None, min_length=1, max_length=64)
+    relative_path: str | None = Field(default=None, min_length=1, max_length=1024)
+    operation: Literal["manifest", "file_metadata", "read_text_member", "hash_member"]
+    member: str | None = Field(default=None, min_length=1, max_length=1024)
+    offset: int = Field(default=0, ge=0, le=100_000_000)
+    max_bytes: int = Field(default=16_000, ge=1, le=64_000)
+    manifest_offset: int = Field(default=0, ge=0, le=100_000)
+    manifest_limit: int = Field(default=100, ge=1, le=512)
+
+    @model_validator(mode="after")
+    def validate_archive_contract(self):
+        artifact_branch = self.artifact_id is not None
+        root_branch = self.root_id is not None or self.relative_path is not None
+        if artifact_branch == root_branch:
+            raise ValueError("AUDIT_ARCHIVE_SOURCE_REFERENCE_REQUIRED")
+        if root_branch and (self.root_id is None or self.relative_path is None):
+            raise ValueError("AUDIT_ARCHIVE_ROOT_REFERENCE_INCOMPLETE")
+
+        member_required = self.operation in {
+            "file_metadata",
+            "read_text_member",
+            "hash_member",
+        }
+        if member_required and self.member is None:
+            raise ValueError("AUDIT_ARCHIVE_MEMBER_REQUIRED")
+        if not member_required and self.member is not None:
+            raise ValueError("AUDIT_ARCHIVE_MEMBER_NOT_ALLOWED")
+        return self
+
+
+class AuditRuntimeFileSha256Request(_AuditRequestBase):
+    module_id: str = Field(min_length=1, max_length=160)
+
+
+class AuditRuntimeSearchMarkerRequest(_AuditRequestBase):
+    module_id: str = Field(min_length=1, max_length=160)
+    marker: str
+    max_scan_bytes: int = Field(default=1_000_000, ge=1, le=1_000_000)
+    max_matches: int = Field(default=256, ge=1, le=256)
+
+    @field_validator("marker")
+    @classmethod
+    def validate_marker(cls, value: str) -> str:
+        return _validate_audit_marker(value) or ""

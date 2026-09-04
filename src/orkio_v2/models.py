@@ -1,6 +1,6 @@
 import enum, uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, DateTime, ForeignKey, Boolean, Integer, Text, UniqueConstraint, CheckConstraint, Index, JSON, text
+from sqlalchemy import String, DateTime, ForeignKey, Boolean, Integer, Text, UniqueConstraint, CheckConstraint, Index, JSON, text, event
 from sqlalchemy.orm import Mapped, mapped_column
 from .database import Base
 
@@ -448,6 +448,82 @@ class AuditEvent(Base):
     outcome: Mapped[str] = mapped_column(String(30))
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class AuditEvidenceRecord(Base):
+    """Append-only durable evidence for governed audit capabilities."""
+
+    __tablename__ = "audit_evidence_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "audit_execution_id",
+            name="uq_audit_evidence_audit_execution_id",
+        ),
+        CheckConstraint(
+            "capability_decision IN ('ALLOW','DENY')",
+            name="ck_audit_evidence_capability_decision",
+        ),
+        CheckConstraint(
+            "status IN ('completed','failed','denied')",
+            name="ck_audit_evidence_status",
+        ),
+        CheckConstraint(
+            "length(evidence_sha256) = 64",
+            name="ck_audit_evidence_sha256_length",
+        ),
+        Index(
+            "ix_audit_evidence_tenant_created",
+            "tenant_id",
+            "created_at",
+        ),
+        Index(
+            "ix_audit_evidence_tenant_execution_created",
+            "tenant_id",
+            "execution_id",
+            "created_at",
+        ),
+        Index(
+            "ix_audit_evidence_tenant_capability_created",
+            "tenant_id",
+            "capability_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=uid)
+    schema_version: Mapped[str] = mapped_column(String(16), nullable=False)
+    audit_execution_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    execution_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    capability_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    capability_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    environment: Mapped[str] = mapped_column(String(40), nullable=False)
+    deployment_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    resolved_agent_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    capability_decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    artifact_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    root_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    envelope_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    evidence_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=now,
+    )
+
+
+@event.listens_for(AuditEvidenceRecord, "before_update")
+def _reject_audit_evidence_orm_update(mapper, connection, target) -> None:
+    raise RuntimeError("AUDIT_EVIDENCE_IMMUTABLE")
+
+
+@event.listens_for(AuditEvidenceRecord, "before_delete")
+def _reject_audit_evidence_orm_delete(mapper, connection, target) -> None:
+    raise RuntimeError("AUDIT_EVIDENCE_IMMUTABLE")
 
 class VoiceCatalogEntry(Base):
     __tablename__ = "voice_catalog_entries"
