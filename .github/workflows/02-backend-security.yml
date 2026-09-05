@@ -236,18 +236,29 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          # Mirror the Python dependency set installed by the production Dockerfile:
-          #   pip install --no-cache-dir '.[stt]'
+          # Resolve the backend runtime dependency graph from the canonical project
+          # metadata plus the `stt` extra in an isolated environment. The local ORKIO
+          # project itself is private/non-PyPI and is excluded from vulnerability lookup;
+          # all resolved third-party distributions remain pinned and auditable.
           #
-          # Use a PEP 508 local project reference with the same `stt` extra so the
-          # audit/SBOM covers the base project dependencies plus faster-whisper and
-          # its resolved transitive dependency graph.
-          printf '%s\n' \
-            "orkio-platform-backend-rc1[stt] @ file://${GITHUB_WORKSPACE}" \
-            > /tmp/orkio-runtime-requirements.txt
+          # Note: exact equivalence with the production Dockerfile dependency lock is
+          # tracked separately; this gate audits the project dependency contract used by CI.
+          python -m venv /tmp/orkio-runtime-audit-venv
+          /tmp/orkio-runtime-audit-venv/bin/python -m pip install --upgrade pip
+          /tmp/orkio-runtime-audit-venv/bin/python -m pip install -e '.[stt]'
+
+          /tmp/orkio-runtime-audit-venv/bin/python -m pip freeze \
+            --exclude-editable \
+            > /tmp/orkio-runtime-third-party.txt
+
+          if grep -qiE 'orkio-platform-backend-rc1|^-e |file://' /tmp/orkio-runtime-third-party.txt; then
+            echo "ERROR: local ORKIO root leaked into third-party audit input"
+            exit 1
+          fi
 
           pip-audit \
-            --requirement /tmp/orkio-runtime-requirements.txt \
+            --requirement /tmp/orkio-runtime-third-party.txt \
+            --no-deps \
             --strict \
             --format cyclonedx-json \
             --output build-security/runtime-dependency-audit.cdx.json \
@@ -277,7 +288,9 @@ jobs:
             echo "secret_scan_baseline=.github/security/secret-scan-baseline.json"
             echo "dependency_audit_outcome=${{ steps.dependencies.outcome }}"
             echo "runtime_dependency_target=orkio-platform-backend-rc1[stt]"
-            echo "runtime_dependency_resolution=strict"
+            echo "runtime_dependency_resolution=isolated-venv-freeze-third-party"
+            echo "runtime_dependency_root_policy=exclude-editable-local-project"
+            echo "runtime_dependency_audit_mode=pinned-no-deps-strict"
             echo "sbom_file=runtime-dependency-audit.cdx.json"
             echo "github_token_permissions=contents:read"
             echo "checkout_persist_credentials=false"
