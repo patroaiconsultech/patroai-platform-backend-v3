@@ -84,7 +84,7 @@ def test_hyper_cocreator_prompt_preserves_canonical_owner_and_blocks_platform_ev
     assert "restricted" in message.lower() or "restrit" in message.lower()
 
 
-def test_hyper_cocreator_provider_prompts_do_not_reintroduce_legacy_orkio_identity():
+def test_hyper_cocreator_preserves_canonical_orkio_identity():
     config_name = "OPENAI" + chr(95) + chr(65) + chr(80) + chr(73) + chr(95) + chr(75) + chr(69) + chr(89)
     cfg = settings(
         **{config_name: "test-value"},
@@ -98,16 +98,22 @@ def test_hyper_cocreator_provider_prompts_do_not_reintroduce_legacy_orkio_identi
 
     payload = openai_payload(cfg, "orkio", history, stream=False)
     base_system = payload["messages"][0]["content"]
-    assert "Dani" not in base_system
-    assert "Josué" not in base_system
-    assert "Chief Executive Officer" not in base_system
+
+    assert "Seu nome nesta conversa é Josué." in base_system
+    assert "Nome: Josué" in base_system
+    assert "Chief Executive Officer" in base_system
+
     assert payload["messages"][1]["content"].startswith("HYPER CO-CREATOR MODE")
     assert "Visible co-creator name for this user: Dani." in payload["messages"][1]["content"]
+    assert "must not replace the resolved agent's canonical name" in payload["messages"][1]["content"]
 
     combined_system, normalized = split_system_and_history("orkio", history)
+
+    assert "Seu nome nesta conversa é Josué." in combined_system
+    assert "Nome: Josué" in combined_system
+    assert "Chief Executive Officer" in combined_system
     assert "Visible co-creator name for this user: Dani." in combined_system
-    assert "Seu nome nesta conversa é Josué." not in combined_system
-    assert "Nome: Josué" not in combined_system
+
     assert normalized == [{"role": "user", "content": "Com quem eu falo?"}]
 
 

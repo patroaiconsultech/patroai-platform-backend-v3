@@ -6,7 +6,7 @@ from conftest import engine
 from orkio_v2.models import VoiceCatalogEntry
 
 
-EXPECTED_HEAD = "008_admin_voice_catalog"
+EXPECTED_HEAD = "009_audit_evidence_ledger"
 LEGACY_HEAD = "007_large_document_b1_b2"
 
 

@@ -38,7 +38,7 @@ def test_realtime_voice_preflight_uses_sanitized_provider_configuration_state():
     assert "print(settings.openai_api_key)" not in text
 
 def test_postgres_workflow_uses_immutable_action_shas():
-    text = (ROOT / ".github" / "workflows" / "02-postgres-integration.yml").read_text(
+    text = (ROOT / ".github" / "workflows" / "03-postgres-integration.yml").read_text(
         encoding="utf-8"
     )
     assert "actions/checkout@v4" not in text
