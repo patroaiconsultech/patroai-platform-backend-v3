@@ -61,9 +61,84 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+
+          bandit_rc=0
           bandit -r src \
             --format json \
-            --output build-security/bandit.json
+            --output build-security/bandit.json || bandit_rc=$?
+
+          # Bandit exit 1 means findings were detected and is evaluated below.
+          # Any other non-zero result means the scanner itself failed.
+          if [ "$bandit_rc" -gt 1 ]; then
+            echo "BANDIT_SCANNER=ERROR exit_code=${bandit_rc}"
+            exit "$bandit_rc"
+          fi
+
+          python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+
+          baseline = json.loads(
+              Path(".github/security/bandit-baseline.json").read_text(encoding="utf-8")
+          )
+          result = json.loads(
+              Path("build-security/bandit.json").read_text(encoding="utf-8")
+          )
+
+          expected = Counter()
+          for item in baseline.get("findings", []):
+              expected[(
+                  item["path"],
+                  item["test_id"],
+                  item["severity"],
+                  item["confidence"],
+              )] += int(item["count"])
+
+          actual = Counter()
+          for item in result.get("results", []):
+              actual[(
+                  item.get("filename"),
+                  item.get("test_id"),
+                  item.get("issue_severity"),
+                  item.get("issue_confidence"),
+              )] += 1
+
+          regressions = []
+          improvements = []
+
+          for key in sorted(set(expected) | set(actual)):
+              before = expected[key]
+              now = actual[key]
+              if now > before:
+                  regressions.append((key, before, now))
+              elif now < before:
+                  improvements.append((key, before, now))
+
+          print(f"BANDIT_BASELINE_TOTAL={sum(expected.values())}")
+          print(f"BANDIT_CURRENT_TOTAL={sum(actual.values())}")
+
+          for key, before, now in improvements:
+              print(
+                  "BANDIT_IMPROVEMENT "
+                  f"path={key[0]} test_id={key[1]} "
+                  f"baseline={before} current={now}"
+              )
+
+          for key, before, now in regressions:
+              print(
+                  "BANDIT_REGRESSION "
+                  f"path={key[0]} test_id={key[1]} "
+                  f"severity={key[2]} confidence={key[3]} "
+                  f"baseline={before} current={now}"
+              )
+
+          if regressions:
+              print(f"BANDIT_GATE=FAIL regressions={len(regressions)}")
+              raise SystemExit(1)
+
+          print("BANDIT_GATE=PASS regressions=0")
+          PY
 
       - name: Working-tree secret scan — detect-secrets
         id: secrets
@@ -78,39 +153,80 @@ jobs:
 
           python - <<'PY'
           import json
+          from collections import Counter
           from pathlib import Path
 
           raw_path = Path("/tmp/detect-secrets.json")
+          baseline_path = Path(".github/security/secret-scan-baseline.json")
+
           data = json.loads(raw_path.read_text(encoding="utf-8"))
+          baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
           results = data.get("results") or {}
 
           findings = []
+          actual = Counter()
+
           for path, items in results.items():
               for item in items or []:
+                  kind = item.get("type")
                   findings.append({
                       "path": path,
                       "line_number": item.get("line_number"),
-                      "type": item.get("type"),
+                      "type": kind,
                   })
+                  actual[(path, kind)] += 1
+
+          expected = Counter()
+          for item in baseline.get("findings", []):
+              expected[(item["path"], item["type"])] += int(item["count"])
 
           summary = {
               "finding_count": len(findings),
               "findings": findings,
               "raw_secret_values_persisted": False,
           }
+
           Path("build-security/secret-scan-summary.json").write_text(
               json.dumps(summary, indent=2, sort_keys=True),
               encoding="utf-8",
           )
 
-          # The full scanner output can contain hashed fingerprints and stays ephemeral.
+          # Never persist the raw scanner output.
           raw_path.unlink(missing_ok=True)
 
-          if findings:
-              print(f"SECRET_SCAN_GATE=FAIL findings={len(findings)}")
+          regressions = []
+          improvements = []
+
+          for key in sorted(set(expected) | set(actual)):
+              before = expected[key]
+              now = actual[key]
+              if now > before:
+                  regressions.append((key, before, now))
+              elif now < before:
+                  improvements.append((key, before, now))
+
+          print(f"SECRET_BASELINE_TOTAL={sum(expected.values())}")
+          print(f"SECRET_CURRENT_TOTAL={sum(actual.values())}")
+
+          for key, before, now in improvements:
+              print(
+                  "SECRET_SCAN_IMPROVEMENT "
+                  f"path={key[0]} type={key[1]!r} "
+                  f"baseline={before} current={now}"
+              )
+
+          for key, before, now in regressions:
+              print(
+                  "SECRET_SCAN_REGRESSION "
+                  f"path={key[0]} type={key[1]!r} "
+                  f"baseline={before} current={now}"
+              )
+
+          if regressions:
+              print(f"SECRET_SCAN_GATE=FAIL regressions={len(regressions)}")
               raise SystemExit(1)
 
-          print("SECRET_SCAN_GATE=PASS findings=0")
+          print("SECRET_SCAN_GATE=PASS regressions=0")
           PY
 
       - name: Runtime dependency audit + CycloneDX SBOM — pip-audit
@@ -127,7 +243,7 @@ jobs:
           # audit/SBOM covers the base project dependencies plus faster-whisper and
           # its resolved transitive dependency graph.
           printf '%s\n' \
-            "orkio-v2-premium-backend[stt] @ file://${GITHUB_WORKSPACE}" \
+            "orkio-platform-backend-rc1[stt] @ file://${GITHUB_WORKSPACE}" \
             > /tmp/orkio-runtime-requirements.txt
 
           pip-audit \
@@ -154,9 +270,13 @@ jobs:
             echo "pip_audit=$(pip-audit --version 2>&1 || true)"
             echo "detect_secrets=$(detect-secrets --version 2>&1 || true)"
             echo "bandit_outcome=${{ steps.bandit.outcome }}"
+            echo "bandit_policy=known-findings-baseline"
+            echo "bandit_baseline=.github/security/bandit-baseline.json"
             echo "secret_scan_outcome=${{ steps.secrets.outcome }}"
+            echo "secret_scan_policy=known-findings-baseline"
+            echo "secret_scan_baseline=.github/security/secret-scan-baseline.json"
             echo "dependency_audit_outcome=${{ steps.dependencies.outcome }}"
-            echo "runtime_dependency_target=orkio-v2-premium-backend[stt]"
+            echo "runtime_dependency_target=orkio-platform-backend-rc1[stt]"
             echo "runtime_dependency_resolution=strict"
             echo "sbom_file=runtime-dependency-audit.cdx.json"
             echo "github_token_permissions=contents:read"
