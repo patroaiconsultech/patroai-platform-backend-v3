@@ -40,8 +40,11 @@ from .services.target_resolver import TargetAmbiguous, TargetNotFound
 from .services.direct_runtime import (
     build_turn as build_direct_turn,
     envelope_payload,
-    history_item,
     persist_agent_response,
+)
+from .services.conversation_history_policy import (
+    DIRECT_HISTORY_POLICY_VERSION,
+    project_direct_history,
 )
 from .runtime.contracts import RuntimeChannel
 from .runtime.events import RuntimeEvent, RuntimeEventType, validate_runtime_sequence
@@ -90,6 +93,7 @@ router=APIRouter(prefix="/api/v2")
 artifact_gate_logger=logging.getLogger("orkio.artifact_gate")
 internal_consultation_logger=logging.getLogger("orkio.internal_consultation")
 llm_runtime_logger=logging.getLogger("orkio.llm_runtime")
+history_policy_logger=logging.getLogger("orkio.history_policy")
 _audit_directive_abuse_limiters: dict[int, AuditDirectiveAbuseLimiter] = {}
 _audit_directive_abuse_limiters_lock = threading.Lock()
 
@@ -545,7 +549,23 @@ def _history(
     rows=db.scalars(select(Message).where(Message.thread_id==thread_id,Message.tenant_id==tenant_id)
                     .order_by(Message.created_at.desc()).limit(limit)).all()
     ordered=list(reversed(rows))
-    history=[history_item(m) for m in ordered]
+    projection=project_direct_history(
+        ordered,
+        turn_owner_agent_id=agent_id,
+    )
+    history=list(projection.messages)
+    history_policy_logger.info(
+        "DIRECT_HISTORY_PROJECTED tenant_id=%s thread_id=%s owner_agent_id=%s policy=%s "
+        "user_count=%s owner_assistant_count=%s cross_agent_context_count=%s cross_agent_ids=%s",
+        tenant_id,
+        thread_id,
+        (agent_id or "").strip(),
+        DIRECT_HISTORY_POLICY_VERSION,
+        projection.user_count,
+        projection.owner_assistant_count,
+        projection.cross_agent_context_count,
+        ",".join(projection.cross_agent_ids),
+    )
     latest_user_content=next(
         (str(m.content or "") for m in reversed(ordered) if m.author_type=="user"),
         "",
