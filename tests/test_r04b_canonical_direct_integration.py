@@ -89,7 +89,7 @@ def test_sse_route_has_same_canonical_identity_as_persistence(client, configured
     assert stored[-1]["content"] == "Resposta SSE."
 
 
-def test_handoff_history_preserves_previous_agent_identity(client, configured, monkeypatch):
+def test_handoff_history_reclassifies_previous_agent_as_context(client, configured, monkeypatch):
     observed = []
 
     async def fake_generate(settings, agent, history):
@@ -115,9 +115,21 @@ def test_handoff_history_preserves_previous_agent_identity(client, configured, m
 
     agent, history = observed[-1]
     assert agent == "chris"
-    contents = [item["content"] for item in history]
-    assert any(content == "[Agent: Josué — Chief Executive Officer] Primeira." for content in contents)
-    assert any(content == "José, continue" for content in contents)
+    cross = [
+        item
+        for item in history
+        if "CROSS_AGENT_CONTEXT_DATA" in item["content"]
+    ]
+    assert len(cross) == 1
+    assert cross[0]["role"] == "user"
+    assert '"source_agent_id":"orkio"' in cross[0]["content"]
+    assert "Josué — Chief Executive Officer" in cross[0]["content"]
+    assert "Primeira." in cross[0]["content"]
+    assert not any(
+        item["role"] == "assistant" and "Josué — Chief Executive Officer" in item["content"]
+        for item in history
+    )
+    assert any(item["role"] == "user" and item["content"] == "José, continue" for item in history)
 
 
 def test_response_envelope_rejects_poisoned_owner():
@@ -147,3 +159,57 @@ def test_list_messages_does_not_expose_user_id_as_agent_id(client):
     )
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_auditor_to_orkio_history_never_promotes_nata_to_orkio_assistant_history(
+    client, configured, monkeypatch
+):
+    observed = []
+
+    async def fake_generate(settings, agent, history):
+        observed.append((agent, list(history)))
+        if agent == "auditor":
+            return "Sou Natã, Auditor Técnico Independente."
+        return "Josué — Chief Executive Officer"
+
+    monkeypatch.setattr(llm, "generate", fake_generate)
+
+    thread = client.post("/api/v2/threads", json={}, headers=headers()).json()
+    first = client.post(
+        f"/api/v2/threads/{thread['id']}/messages",
+        json={"content": "Faça uma auditoria.", "agent": "Natã"},
+        headers=headers(),
+    )
+    assert first.status_code == 200
+    assert first.json()["agent_id"] == "auditor"
+
+    second = client.post(
+        f"/api/v2/threads/{thread['id']}/messages",
+        json={"content": "Responda somente com seu nome e sua função.", "agent": "Josué"},
+        headers=headers(),
+    )
+    assert second.status_code == 200
+    assert second.json()["agent_id"] == "orkio"
+    assert second.json()["agent_name"] == "Josué — Chief Executive Officer"
+
+    agent, history = observed[-1]
+    assert agent == "orkio"
+    nata_context = [
+        item
+        for item in history
+        if "CROSS_AGENT_CONTEXT_DATA" in item["content"] and '"source_agent_id":"auditor"' in item["content"]
+    ]
+    assert len(nata_context) == 1
+    assert nata_context[0]["role"] == "user"
+    assert "Natã — Independent Technical Auditor" in nata_context[0]["content"]
+    assert not any(
+        item["role"] == "assistant" and "Natã — Independent Technical Auditor" in item["content"]
+        for item in history
+    )
+
+    stored = client.get(
+        f"/api/v2/threads/{thread['id']}/messages",
+        headers=headers(),
+    ).json()
+    assert stored[-1]["agent_id"] == "orkio"
+    assert stored[-1]["agent_name"] == "Josué — Chief Executive Officer"
