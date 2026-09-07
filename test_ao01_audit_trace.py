@@ -12,6 +12,30 @@ from orkio_v2.services import llm
 import orkio_v2.routes as routes
 
 
+
+def test_trace_runtime_sink_is_visible_under_uvicorn_default_logging(tmp_path):
+    script = r"""
+import logging.config
+import os
+from uvicorn.config import LOGGING_CONFIG
+logging.config.dictConfig(LOGGING_CONFIG)
+os.environ["ORKIO_AUDIT_TRACE_ENABLED"] = "true"
+from orkio_v2.services.ao01_audit_trace import emit_audit_trace
+emit_audit_trace("runtime_sink_probe", trace_id="trace-probe-1", status="ok")
+"""
+    result = __import__("subprocess").run(
+        [__import__("sys").executable, "-c", script],
+        cwd=str(__import__("pathlib").Path(__file__).resolve().parents[1]),
+        env={**__import__("os").environ, "PYTHONPATH": str(__import__("pathlib").Path(__file__).resolve().parents[1] / "src")},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    combined = result.stdout + result.stderr
+    assert "AUDIT_TRACE" in combined
+    assert "runtime_sink_probe" in combined
+
 def _enable_audit(monkeypatch, *, trace: bool) -> None:
     for name, value in {
         "PLATFORM_AUDIT_GOVERNED_INVOCATION_ENABLED": "true",
@@ -50,7 +74,7 @@ def _thread(client) -> str:
 def _trace_payloads(caplog) -> list[dict[str, object]]:
     payloads: list[dict[str, object]] = []
     for record in caplog.records:
-        if record.name != "orkio.audit_trace":
+        if record.name != "uvicorn.error.orkio.audit_trace":
             continue
         message = record.getMessage()
         if message.startswith("AUDIT_TRACE "):
@@ -62,7 +86,7 @@ def test_trace_success_correlates_directive_repository_return_attach_and_sse(
     client, monkeypatch, caplog
 ):
     _enable_audit(monkeypatch, trace=True)
-    caplog.set_level(logging.INFO, logger="orkio.audit_trace")
+    caplog.set_level(logging.INFO, logger="uvicorn.error.orkio.audit_trace")
     marker = "TRACE_LITERAL_SHOULD_NOT_BE_LOGGED_777"
 
     async def fake_stream(settings, agent, history):
@@ -129,7 +153,7 @@ def test_trace_invalid_module_records_first_typed_failure_and_sse_terminal(
     client, monkeypatch, caplog
 ):
     _enable_audit(monkeypatch, trace=True)
-    caplog.set_level(logging.INFO, logger="orkio.audit_trace")
+    caplog.set_level(logging.INFO, logger="uvicorn.error.orkio.audit_trace")
 
     async def must_not_stream(*args, **kwargs):
         raise AssertionError("LLM must not run for failed governed audit")
@@ -174,7 +198,7 @@ def test_trace_invalid_module_records_first_typed_failure_and_sse_terminal(
 
 def test_trace_flag_off_has_zero_audit_trace_records(client, monkeypatch, caplog):
     _enable_audit(monkeypatch, trace=False)
-    caplog.set_level(logging.INFO, logger="orkio.audit_trace")
+    caplog.set_level(logging.INFO, logger="uvicorn.error.orkio.audit_trace")
 
     async def fake_stream(settings, agent, history):
         yield "Sem trace."

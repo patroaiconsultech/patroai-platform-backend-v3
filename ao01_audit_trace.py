@@ -8,7 +8,7 @@ import re
 from typing import Mapping
 
 
-_TRACE_LOGGER = logging.getLogger("orkio.audit_trace")
+_TRACE_LOGGER = logging.getLogger("uvicorn.error.orkio.audit_trace")
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _SENSITIVE_KEY = re.compile(
     r"(authorization|cookie|token|secret|password|api[_-]?key|credential|prompt|document|content|body)",
