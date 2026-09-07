@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 import hashlib
+import json
 import time
 
 import pytest
@@ -441,3 +442,193 @@ def test_integrity_mismatch_remains_post_read_failure(tmp_path, monkeypatch):
         assert row.envelope_json["capability_decision"] == "ALLOW"
         assert row.envelope_json["capability_decision_reason"] == "ALLOW"
         assert row.envelope_json["read_executed"] is True
+
+
+def test_runtime_marker_has_durable_request_binding_without_persisting_plaintext_marker(tmp_path):
+    marker = "needle-current-directive-777"
+    (tmp_path / "module.py").write_text(
+        f"alpha\n{marker}\nomega\n",
+        encoding="utf-8",
+    )
+    service, factory = _service(tmp_path)
+    result = service.invoke_if_directive(
+        message=(
+            '/audit {"version":"1","operation":"runtime.search_marker",'
+            f'"module_id":"routes","marker":"{marker}"}}'
+        ),
+        turn=_turn(),
+        principal_roles=("admin",),
+    )
+
+    assert result is not None
+    binding = result.data["request_binding"]
+    assert binding["contract"] == "ORKIO-AUDIT-REQUEST-BINDING-1"
+    assert binding["operation"] == "runtime.search_marker"
+    assert binding["arguments"]["module_id"] == {
+        "binding": "literal",
+        "value": "routes",
+        "source": "current_parsed_directive",
+    }
+    assert binding["arguments"]["marker"]["binding"] == "sha256"
+    assert binding["arguments"]["marker"]["source"] == "current_parsed_directive"
+    assert binding["arguments"]["marker"]["sha256"] == hashlib.sha256(
+        marker.encode("utf-8")
+    ).hexdigest()
+    assert (
+        result.data["request_result_binding"]["marker_sha256_matches_request"]
+        is True
+    )
+    assert (
+        result.data["result"]["marker_sha256"]
+        == binding["arguments"]["marker"]["sha256"]
+    )
+
+    system_message = result.system_message()["content"]
+    assert "fresh evidence produced by the current parsed /audit directive" in system_message
+    assert "do not describe it as merely historical" in system_message
+    assert marker not in system_message
+
+    with factory() as db:
+        row = db.scalar(select(AuditEvidenceRecord))
+        assert row is not None
+        persisted = json.dumps(
+            row.envelope_json,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        assert marker not in persisted
+        assert binding["directive_sha256"] in persisted
+        assert binding["arguments"]["marker"]["sha256"] in persisted
+
+
+def test_runtime_marker_request_result_binding_mismatch_fails_closed(tmp_path, monkeypatch):
+    marker = "needle-binding-mismatch"
+    (tmp_path / "module.py").write_text(marker, encoding="utf-8")
+    service, factory = _service(tmp_path)
+
+    def wrong_marker_hash(self, module_id, *, marker, max_scan_bytes, max_matches):
+        return {
+            "module_id": module_id,
+            "relative_path": "module.py",
+            "marker_sha256": "0" * 64,
+            "marker_found": True,
+            "match_count": 1,
+            "line_numbers": [1],
+            "truncated_matches": False,
+            "max_matches": max_matches,
+            "bytes_scanned": len(marker.encode("utf-8")),
+            "scan_truncated": False,
+            "match_count_complete": True,
+        }
+
+    monkeypatch.setattr(
+        "orkio_v2.services.audit_invocation_service.AuditRuntimeAdapter.search_marker",
+        wrong_marker_hash,
+    )
+
+    with pytest.raises(AuditInvocationError) as exc:
+        service.invoke_if_directive(
+            message=(
+                '/audit {"version":"1","operation":"runtime.search_marker",'
+                f'"module_id":"routes","marker":"{marker}"}}'
+            ),
+            turn=_turn(),
+            principal_roles=("admin",),
+        )
+
+    assert exc.value.code == "AUDIT_REQUEST_RESULT_BINDING_MISMATCH"
+    assert exc.value.http_status == 500
+    with factory() as db:
+        row = db.scalar(select(AuditEvidenceRecord))
+        assert row is not None
+        assert row.status == "failed"
+        assert row.error_code == "AUDIT_REQUEST_RESULT_BINDING_MISMATCH"
+        persisted = json.dumps(row.envelope_json, ensure_ascii=False, sort_keys=True)
+        assert marker not in persisted
+        assert hashlib.sha256(marker.encode("utf-8")).hexdigest() in persisted
+
+
+def test_runtime_file_sha256_binds_persisted_evidence_to_current_turn_and_result(tmp_path):
+    (tmp_path / "module.py").write_text("current binding premium\n", encoding="utf-8")
+    service, factory = _service(tmp_path)
+    turn = _turn(channel=RuntimeChannel.CHAT_SSE)
+    result = service.invoke_if_directive(
+        message='/audit {"version":"1","operation":"runtime.file_sha256","module_id":"routes"}',
+        turn=turn,
+        principal_roles=("admin",),
+    )
+
+    assert result is not None
+    assert result.status == "completed"
+    binding = result.data["request_binding"]
+    assert binding["contract"] == "ORKIO-AUDIT-REQUEST-BINDING-1"
+    assert binding["source"] == "current_parsed_directive_and_canonical_turn"
+    assert binding["turn"] == {
+        "request_id": "req-1",
+        "execution_id": "exec-1",
+        "thread_id": "thread-1",
+        "tenant_id": "tenant-1",
+        "requested_agent": "Natã",
+        "resolved_agent": "auditor",
+        "turn_owner": "auditor",
+        "route_family": "direct_agent",
+        "channel": "chat_sse",
+        "ownership_locked": True,
+    }
+    assert binding["arguments"]["module_id"] == {
+        "binding": "literal",
+        "value": "routes",
+        "source": "current_parsed_directive",
+    }
+    assert result.data["request_result_binding"]["module_id_matches_request"] is True
+    assert result.data["result"]["module_id"] == "routes"
+
+    system_message = result.system_message()["content"]
+    assert '"execution_id":"exec-1"' in system_message
+    assert '"request_id":"req-1"' in system_message
+    assert "bind this persisted evidence to the current request" in system_message
+    assert "do not classify that evidence as historical" in system_message
+
+    with factory() as db:
+        row = db.scalar(select(AuditEvidenceRecord))
+        assert row is not None
+        persisted_binding = row.envelope_json["data"]["request_binding"]
+        assert persisted_binding["turn"]["execution_id"] == "exec-1"
+        assert persisted_binding["turn"]["request_id"] == "req-1"
+        assert row.envelope_json["execution_id"] == "exec-1"
+        assert row.envelope_json["request_id"] == "req-1"
+
+
+def test_runtime_file_sha256_module_binding_mismatch_fails_closed(tmp_path, monkeypatch):
+    (tmp_path / "module.py").write_text("binding mismatch\n", encoding="utf-8")
+    service, factory = _service(tmp_path)
+
+    def wrong_module(self, module_id):
+        return {
+            "module_id": "not-the-requested-module",
+            "relative_path": "module.py",
+            "sha256": "0" * 64,
+            "bytes_hashed": 1,
+        }
+
+    monkeypatch.setattr(
+        "orkio_v2.services.audit_invocation_service.AuditRuntimeAdapter.file_sha256",
+        wrong_module,
+    )
+
+    with pytest.raises(AuditInvocationError) as exc:
+        service.invoke_if_directive(
+            message='/audit {"version":"1","operation":"runtime.file_sha256","module_id":"routes"}',
+            turn=_turn(),
+            principal_roles=("admin",),
+        )
+
+    assert exc.value.code == "AUDIT_REQUEST_RESULT_BINDING_MISMATCH"
+    assert exc.value.http_status == 500
+    with factory() as db:
+        row = db.scalar(select(AuditEvidenceRecord))
+        assert row is not None
+        assert row.status == "failed"
+        assert row.error_code == "AUDIT_REQUEST_RESULT_BINDING_MISMATCH"
+        assert row.envelope_json["data"]["request_binding"]["turn"]["execution_id"] == "exec-1"
