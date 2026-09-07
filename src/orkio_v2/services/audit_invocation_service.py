@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
+import hmac
 import json
 from pathlib import Path
 from typing import Any, Callable
@@ -54,6 +56,123 @@ class AuditInvocationError(RuntimeError):
         self.audit_reference = audit_reference
 
 
+_AUDIT_REQUEST_BINDING_CONTRACT = "ORKIO-AUDIT-REQUEST-BINDING-1"
+_DIGEST_BOUND_ARGUMENTS = frozenset({"artifact_id", "member_name", "marker"})
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _build_request_binding(
+    directive: AuditDirective,
+    *,
+    turn: CanonicalTurnContext,
+) -> dict[str, Any]:
+    canonical_payload = {
+        "version": directive.version,
+        "operation": directive.operation,
+        **directive.arguments,
+    }
+    canonical_bytes = json.dumps(
+        canonical_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    arguments: dict[str, Any] = {}
+    for name in sorted(directive.arguments):
+        value = directive.arguments[name]
+        if name in _DIGEST_BOUND_ARGUMENTS and isinstance(value, str):
+            arguments[name] = {
+                "binding": "sha256",
+                "sha256": _sha256_text(value),
+                "source": "current_parsed_directive",
+            }
+        else:
+            arguments[name] = {
+                "binding": "literal",
+                "value": value,
+                "source": "current_parsed_directive",
+            }
+
+    return {
+        "contract": _AUDIT_REQUEST_BINDING_CONTRACT,
+        "canonicalization": "json-sort-keys-v1",
+        "directive_sha256": hashlib.sha256(canonical_bytes).hexdigest(),
+        "source": "current_parsed_directive_and_canonical_turn",
+        "version": directive.version,
+        "operation": directive.operation,
+        "turn": {
+            "request_id": turn.request_id,
+            "execution_id": turn.execution_id,
+            "thread_id": turn.thread_id,
+            "tenant_id": turn.tenant_id,
+            "requested_agent": turn.requested_target,
+            "resolved_agent": turn.resolved_agent_id,
+            "turn_owner": turn.turn_owner_agent_id,
+            "route_family": turn.route_family.value,
+            "channel": turn.channel.value,
+            "ownership_locked": turn.ownership_locked,
+        },
+        "arguments": arguments,
+    }
+
+
+def _verify_request_result_binding(
+    *,
+    directive: AuditDirective,
+    request_binding: dict[str, Any],
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    checks: dict[str, Any] = {}
+
+    if directive.operation in {
+        "runtime.file_sha256",
+        "runtime.search_marker",
+    }:
+        expected_module = (
+            request_binding.get("arguments", {})
+            .get("module_id", {})
+            .get("value")
+        )
+        actual_module = result.get("module_id")
+        if (
+            not isinstance(expected_module, str)
+            or not isinstance(actual_module, str)
+            or not hmac.compare_digest(expected_module, actual_module)
+        ):
+            raise AuditInvocationError(
+                "AUDIT_REQUEST_RESULT_BINDING_MISMATCH",
+                http_status=500,
+            )
+        checks["module_id_matches_request"] = True
+
+    if directive.operation in {
+        "file.find_literal_marker",
+        "runtime.search_marker",
+    }:
+        expected = (
+            request_binding.get("arguments", {})
+            .get("marker", {})
+            .get("sha256")
+        )
+        actual = result.get("marker_sha256")
+        if (
+            not isinstance(expected, str)
+            or not isinstance(actual, str)
+            or not hmac.compare_digest(expected, actual)
+        ):
+            raise AuditInvocationError(
+                "AUDIT_REQUEST_RESULT_BINDING_MISMATCH",
+                http_status=500,
+            )
+        checks["marker_sha256_matches_request"] = True
+
+    return checks
+
+
 @dataclass(frozen=True, slots=True)
 class AuditInvocationOutcome:
     operation: str
@@ -84,8 +203,22 @@ class AuditInvocationOutcome:
         return {
             "role": "system",
             "content": (
-                "TRUSTED GOVERNED AUDIT EVIDENCE — Natã may use only this sanitized, "
-                "durably persisted and rehashed capability result for the current directive.\n"
+                "TRUSTED GOVERNED AUDIT EVIDENCE — this is fresh evidence produced by the "
+                "current parsed /audit directive and durably persisted + rehashed before model "
+                "use. Treat a completed/verified outcome as evidence of the runtime state observed "
+                "by the capability at execution time; do not describe it as merely historical, "
+                "external, or unavailable. data.request_binding is server-generated from the exact "
+                "parsed directive and the current CanonicalTurnContext for this same model turn. "
+                "Its turn.request_id and turn.execution_id bind this persisted evidence to the "
+                "current request; when the outcome is completed/verified, do not classify that "
+                "evidence as historical solely because it is also durable. Digest-bound argument "
+                "plaintext is intentionally not persisted "
+                "and must never be reconstructed from a digest alone. When "
+                "data.request_result_binding confirms a digest match, Natã may associate that "
+                "digest-bound argument with the literal present in this current /audit directive. "
+                "Do not ask the user to re-run the same directive or provide external JSON solely "
+                "because persisted evidence stores a digest instead of plaintext. Natã may use "
+                "only this sanitized governed result for capability claims.\n"
                 + json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
             ),
         }
@@ -131,6 +264,8 @@ def _http_status_for(code: str) -> int:
         "AUDIT_EVIDENCE_PERSISTENCE_INTEGRITY_MISMATCH",
     }:
         return 503
+    if code == "AUDIT_REQUEST_RESULT_BINDING_MISMATCH":
+        return 500
     if code == "AUDIT_REQUEST_TIMEOUT":
         return 504
     if code in {"AUDIT_ARCHIVE_NOT_FOUND"}:
@@ -638,6 +773,7 @@ class GovernedAuditInvocationService:
         self._trace("policy_allowed", turn=turn, directive=directive, status="accepted")
         spec = self._registry.get(directive.spec.capability_id)
         self._trace("dispatcher_enter", turn=turn, directive=directive, status="running")
+        request_binding = _build_request_binding(directive, turn=turn)
         operation = self._operation(directive, tenant_id=turn.tenant_id)
         try:
             self._trace("adapter_started", turn=turn, directive=directive, status="running")
@@ -646,9 +782,16 @@ class GovernedAuditInvocationService:
             raw_data = guarded.data
             if not isinstance(raw_data, dict):
                 raise AuditInvocationError("AUDIT_OUTPUT_TYPE_FORBIDDEN")
+            request_result_binding = _verify_request_result_binding(
+                directive=directive,
+                request_binding=request_binding,
+                result=raw_data,
+            )
             evidence_data = {
                 "governance_mode": AUDIT_GOVERNANCE_MODE,
                 "operation": directive.operation,
+                "request_binding": request_binding,
+                "request_result_binding": request_result_binding,
                 "output_changed_by_sanitizer": guarded.sanitized,
                 "serialized_bytes": guarded.serialized_bytes,
                 "result": raw_data,
@@ -689,6 +832,7 @@ class GovernedAuditInvocationService:
                     data={
                         "governance_mode": AUDIT_GOVERNANCE_MODE,
                         "operation": directive.operation,
+                        "request_binding": request_binding,
                     },
                     error_code=code,
                 )
