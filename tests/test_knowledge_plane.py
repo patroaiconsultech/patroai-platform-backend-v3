@@ -525,7 +525,7 @@ def test_alembic_has_one_effective_head_and_legacy_claim_is_not_in_graph():
     assert script.get_heads() == ["009_audit_evidence_ledger"]
     revisions = {revision.revision for revision in script.walk_revisions()}
     assert "005_legacy_claim_on_demand" not in revisions
-    assert (root / "005_legacy_claim_on_demand.py").exists()
+    assert not (root / "005_legacy_claim_on_demand.py").exists()
 
 
 def test_http_routes_materialize_personal_and_institutional_destinations(
