@@ -81,6 +81,7 @@ from .services.internal_consultation import (
 )
 from .services.python_tool import PythonToolError, execute_python
 from .services.external_read_tool import ExternalReadError, read_external_url
+from .services.ao01_audit_trace import emit_audit_trace
 from .services.audit_invocation_directive import looks_like_audit_directive
 from .services.audit_invocation_rate_limit import AuditDirectiveAbuseLimiter
 from .services.audit_invocation_service import (
@@ -94,6 +95,45 @@ artifact_gate_logger=logging.getLogger("orkio.artifact_gate")
 internal_consultation_logger=logging.getLogger("orkio.internal_consultation")
 llm_runtime_logger=logging.getLogger("orkio.llm_runtime")
 history_policy_logger=logging.getLogger("orkio.history_policy")
+
+
+def _audit_trace_turn(
+    stage: str,
+    *,
+    turn,
+    settings: Settings,
+    capability_id: str | None = None,
+    operation: str | None = None,
+    audit_execution_id: str | None = None,
+    status: str | None = None,
+    error_code: str | None = None,
+) -> None:
+    emit_audit_trace(
+        stage,
+        trace_id=turn.execution_id,
+        request_id=turn.request_id,
+        execution_id=turn.execution_id,
+        audit_execution_id=audit_execution_id,
+        thread_id=turn.thread_id,
+        tenant_id=turn.tenant_id,
+        requested_agent=turn.requested_target,
+        resolved_agent=turn.resolved_agent_id,
+        turn_owner=turn.turn_owner_agent_id,
+        route_family=turn.route_family.value,
+        channel=turn.channel.value,
+        capability_id=capability_id,
+        operation=operation,
+        deployment_id=(
+            getattr(settings, "railway_deployment_id", None)
+            or getattr(settings, "release_sha", None)
+            or "unknown"
+        ),
+        build_sha=str(getattr(settings, "release_sha", "unknown") or "unknown"),
+        status=status,
+        error_code=error_code,
+    )
+
+
 _audit_directive_abuse_limiters: dict[int, AuditDirectiveAbuseLimiter] = {}
 _audit_directive_abuse_limiters_lock = threading.Lock()
 
@@ -885,6 +925,13 @@ async def send_message(thread_id:str,payload:MessageCreate,p:Principal=Depends(r
         channel=RuntimeChannel.CHAT_JSON,
     )
     audit_candidate = looks_like_audit_directive(payload.content)
+    if audit_candidate:
+        _audit_trace_turn(
+            "directive_received",
+            turn=turn,
+            settings=settings,
+            status="accepted",
+        )
     observer=ExecutionObserver.from_turn(turn,execution_engine=execution.execution_engine.value)
     observer.start()
     try:
@@ -922,6 +969,16 @@ async def send_message(thread_id:str,payload:MessageCreate,p:Principal=Depends(r
         runtime_system_messages = (
             [audit_outcome.system_message()] if audit_outcome is not None else []
         )
+        if audit_outcome is not None:
+            _audit_trace_turn(
+                "evidence_attached_to_turn",
+                turn=turn,
+                settings=settings,
+                capability_id=audit_outcome.capability_id,
+                operation=audit_outcome.operation,
+                audit_execution_id=audit_outcome.audit_execution_id,
+                status=audit_outcome.status,
+            )
     else:
         github_messages = await github_context_messages(
             settings,
@@ -1031,6 +1088,13 @@ async def stream_message(thread_id:str,payload:MessageCreate,p:Principal=Depends
         channel=RuntimeChannel.CHAT_SSE,
     )
     audit_candidate = looks_like_audit_directive(payload.content)
+    if audit_candidate:
+        _audit_trace_turn(
+            "directive_received",
+            turn=turn,
+            settings=settings,
+            status="accepted",
+        )
 
     internal_contributions = ()
     internal_consultation_plans = ()
@@ -1126,6 +1190,15 @@ async def stream_message(thread_id:str,payload:MessageCreate,p:Principal=Depends
         )
         if audit_outcome is not None:
             runtime_system_messages.append(audit_outcome.system_message())
+            _audit_trace_turn(
+                "evidence_attached_to_turn",
+                turn=turn,
+                settings=settings,
+                capability_id=audit_outcome.capability_id,
+                operation=audit_outcome.operation,
+                audit_execution_id=audit_outcome.audit_execution_id,
+                status=audit_outcome.status,
+            )
         if hyper_surface:
             runtime_system_messages.insert(
                 0,
@@ -1199,9 +1272,27 @@ async def stream_message(thread_id:str,payload:MessageCreate,p:Principal=Depends
         if audit_error is not None:
             observer.fail(audit_error.code)
             error_data: dict[str, object] = {"code": audit_error.code}
+            audit_ref = audit_error.audit_reference or {}
             if audit_error.audit_reference is not None:
                 error_data["audit"] = audit_error.audit_reference
             yield sse_event(event(RuntimeEventType.ERROR, **error_data))
+            _audit_trace_turn(
+                "sse_terminal",
+                turn=turn,
+                settings=settings,
+                capability_id=(
+                    str(audit_ref.get("capability_id"))
+                    if audit_ref.get("capability_id") is not None
+                    else None
+                ),
+                audit_execution_id=(
+                    str(audit_ref.get("audit_execution_id"))
+                    if audit_ref.get("audit_execution_id") is not None
+                    else None
+                ),
+                status="failed",
+                error_code=audit_error.code,
+            )
             yield sse_event(terminal(RuntimeEventType.DONE,status="failed"))
             return
 
@@ -1359,6 +1450,16 @@ async def stream_message(thread_id:str,payload:MessageCreate,p:Principal=Depends
             done_payload["artifact"]=artifact_payload(generated_artifact)
         if artifact_error_code is not None:
             done_payload["artifact_error"] = artifact_error_code
+        if audit_outcome is not None:
+            _audit_trace_turn(
+                "sse_terminal",
+                turn=turn,
+                settings=settings,
+                capability_id=audit_outcome.capability_id,
+                operation=audit_outcome.operation,
+                audit_execution_id=audit_outcome.audit_execution_id,
+                status="completed",
+            )
         yield sse_event(terminal(RuntimeEventType.DONE, **done_payload))
 
     return StreamingResponse(events(),media_type="text/event-stream",
