@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import hashlib
-import hmac
 import json
 from pathlib import Path
 from typing import Any, Callable
@@ -25,6 +23,7 @@ from .audit_invocation_directive import (
     looks_like_audit_directive,
     parse_audit_directive,
 )
+from .ao01_audit_trace import emit_audit_trace
 from .audit_invocation_rate_limit import (
     AuditDirectiveAbuseLimiter,
     AuditRateLimitError,
@@ -53,85 +52,6 @@ class AuditInvocationError(RuntimeError):
         self.code = code
         self.http_status = http_status
         self.audit_reference = audit_reference
-
-
-_AUDIT_REQUEST_BINDING_CONTRACT = "ORKIO-AUDIT-REQUEST-BINDING-1"
-_DIGEST_BOUND_ARGUMENTS = frozenset({"artifact_id", "member_name", "marker"})
-
-
-def _sha256_text(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _build_request_binding(directive: AuditDirective) -> dict[str, Any]:
-    canonical_payload = {
-        "version": directive.version,
-        "operation": directive.operation,
-        **directive.arguments,
-    }
-    canonical_bytes = json.dumps(
-        canonical_payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-
-    arguments: dict[str, Any] = {}
-    for name in sorted(directive.arguments):
-        value = directive.arguments[name]
-        if name in _DIGEST_BOUND_ARGUMENTS and isinstance(value, str):
-            arguments[name] = {
-                "binding": "sha256",
-                "sha256": _sha256_text(value),
-                "source": "current_parsed_directive",
-            }
-        else:
-            arguments[name] = {
-                "binding": "literal",
-                "value": value,
-                "source": "current_parsed_directive",
-            }
-
-    return {
-        "contract": _AUDIT_REQUEST_BINDING_CONTRACT,
-        "canonicalization": "json-sort-keys-v1",
-        "directive_sha256": hashlib.sha256(canonical_bytes).hexdigest(),
-        "version": directive.version,
-        "operation": directive.operation,
-        "arguments": arguments,
-    }
-
-
-def _verify_request_result_binding(
-    *,
-    directive: AuditDirective,
-    request_binding: dict[str, Any],
-    result: dict[str, Any],
-) -> dict[str, Any]:
-    checks: dict[str, Any] = {}
-
-    if directive.operation in {
-        "file.find_literal_marker",
-        "runtime.search_marker",
-    }:
-        expected = (
-            request_binding.get("arguments", {})
-            .get("marker", {})
-            .get("sha256")
-        )
-        actual = result.get("marker_sha256")
-        if (
-            not isinstance(expected, str)
-            or not isinstance(actual, str)
-            or not hmac.compare_digest(expected, actual)
-        ):
-            raise AuditInvocationError(
-                "AUDIT_REQUEST_RESULT_BINDING_MISMATCH",
-                http_status=500,
-            )
-        checks["marker_sha256_matches_request"] = True
-
-    return checks
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,18 +84,8 @@ class AuditInvocationOutcome:
         return {
             "role": "system",
             "content": (
-                "TRUSTED GOVERNED AUDIT EVIDENCE — this is fresh evidence produced by the "
-                "current parsed /audit directive and durably persisted + rehashed before model "
-                "use. Treat a completed/verified outcome as evidence of the runtime state observed "
-                "by the capability at execution time; do not describe it as merely historical, "
-                "external, or unavailable. data.request_binding is server-generated from the exact "
-                "parsed directive. Digest-bound argument plaintext is intentionally not persisted "
-                "and must never be reconstructed from a digest alone. When "
-                "data.request_result_binding confirms a digest match, Natã may associate that "
-                "digest-bound argument with the literal present in this current /audit directive. "
-                "Do not ask the user to re-run the same directive or provide external JSON solely "
-                "because persisted evidence stores a digest instead of plaintext. Natã may use "
-                "only this sanitized governed result for capability claims.\n"
+                "TRUSTED GOVERNED AUDIT EVIDENCE — Natã may use only this sanitized, "
+                "durably persisted and rehashed capability result for the current directive.\n"
                 + json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
             ),
         }
@@ -221,8 +131,6 @@ def _http_status_for(code: str) -> int:
         "AUDIT_EVIDENCE_PERSISTENCE_INTEGRITY_MISMATCH",
     }:
         return 503
-    if code == "AUDIT_REQUEST_RESULT_BINDING_MISMATCH":
-        return 500
     if code == "AUDIT_REQUEST_TIMEOUT":
         return 504
     if code in {"AUDIT_ARCHIVE_NOT_FOUND"}:
@@ -304,6 +212,39 @@ class GovernedAuditInvocationService:
                 return str(value).strip()
         return "unknown"
 
+    def _trace(
+        self,
+        stage: str,
+        *,
+        turn: CanonicalTurnContext,
+        directive: AuditDirective | None = None,
+        audit_execution_id: str | None = None,
+        status: str | None = None,
+        error_code: str | None = None,
+        repository_verified_on_return: bool | None = None,
+    ) -> None:
+        emit_audit_trace(
+            stage,
+            trace_id=turn.execution_id,
+            request_id=turn.request_id,
+            execution_id=turn.execution_id,
+            audit_execution_id=audit_execution_id,
+            thread_id=turn.thread_id,
+            tenant_id=turn.tenant_id,
+            requested_agent=turn.requested_target,
+            resolved_agent=turn.resolved_agent_id,
+            turn_owner=turn.turn_owner_agent_id,
+            route_family=turn.route_family.value,
+            channel=turn.channel.value,
+            capability_id=directive.spec.capability_id if directive is not None else None,
+            operation=directive.operation if directive is not None else None,
+            deployment_id=self._deployment_id(),
+            build_sha=str(getattr(self._settings, "release_sha", "unknown") or "unknown"),
+            status=status,
+            error_code=error_code,
+            repository_verified_on_return=repository_verified_on_return,
+        )
+
     def _evidence_root(self, directive: AuditDirective) -> str | None:
         if directive.operation.startswith(("file.", "archive.")):
             return "artifact"
@@ -361,6 +302,14 @@ class GovernedAuditInvocationService:
             data=data,
             error_code=error_code,
         )
+        self._trace(
+            "evidence_persist_started",
+            turn=turn,
+            directive=directive,
+            audit_execution_id=envelope.audit_execution_id,
+            status=status,
+            error_code=error_code,
+        )
         try:
             result = self._append_fn(
                 envelope,
@@ -368,10 +317,27 @@ class GovernedAuditInvocationService:
             )
         except Exception as exc:
             code = _error_code(exc, "AUDIT_EVIDENCE_PERSISTENCE_FAILED")
+            self._trace(
+                "evidence_persist_failed",
+                turn=turn,
+                directive=directive,
+                audit_execution_id=envelope.audit_execution_id,
+                status="failed",
+                error_code=code,
+            )
             raise AuditInvocationError(
                 code,
                 http_status=_http_status_for(code),
             ) from exc
+        self._trace(
+            "evidence_repository_returned",
+            turn=turn,
+            directive=directive,
+            audit_execution_id=envelope.audit_execution_id,
+            status=status,
+            error_code=error_code,
+            repository_verified_on_return=(self._append_fn is append_evidence),
+        )
         return envelope.to_dict(), result
 
     def _deny(
@@ -612,6 +578,12 @@ class GovernedAuditInvocationService:
         try:
             directive = parse_audit_directive(message)
         except AuditDirectiveError as exc:
+            self._trace(
+                "directive_parse_failed",
+                turn=turn,
+                status="failed",
+                error_code=exc.code,
+            )
             raise AuditInvocationError(
                 exc.code,
                 http_status=_http_status_for(exc.code),
@@ -619,12 +591,20 @@ class GovernedAuditInvocationService:
         if directive is None:
             return None
 
+        self._trace("directive_parsed", turn=turn, directive=directive, status="accepted")
         requested_canonical_agent_id = self._requested_canonical_agent_id(turn)
         preflight_reason = self._preflight_reason(
             turn=turn,
             requested_canonical_agent_id=requested_canonical_agent_id,
         )
         if preflight_reason is not None:
+            self._trace(
+                "policy_denied",
+                turn=turn,
+                directive=directive,
+                status="denied",
+                error_code=preflight_reason,
+            )
             self._deny(
                 turn=turn,
                 requested_canonical_agent_id=requested_canonical_agent_id,
@@ -632,6 +612,7 @@ class GovernedAuditInvocationService:
                 reason=preflight_reason,
             )
 
+        self._trace("policy_preflight_allowed", turn=turn, directive=directive, status="accepted")
         privileged_user = bool({"admin", "orkio_admin"}.intersection(set(principal_roles)))
         decision = self._authorize(
             directive=directive,
@@ -640,6 +621,13 @@ class GovernedAuditInvocationService:
             privileged_user=privileged_user,
         )
         if not decision.allowed:
+            self._trace(
+                "policy_denied",
+                turn=turn,
+                directive=directive,
+                status="denied",
+                error_code=decision.reason,
+            )
             self._deny(
                 turn=turn,
                 requested_canonical_agent_id=requested_canonical_agent_id,
@@ -647,24 +635,20 @@ class GovernedAuditInvocationService:
                 reason=decision.reason,
             )
 
+        self._trace("policy_allowed", turn=turn, directive=directive, status="accepted")
         spec = self._registry.get(directive.spec.capability_id)
-        request_binding = _build_request_binding(directive)
+        self._trace("dispatcher_enter", turn=turn, directive=directive, status="running")
         operation = self._operation(directive, tenant_id=turn.tenant_id)
         try:
+            self._trace("adapter_started", turn=turn, directive=directive, status="running")
             guarded = self._guard.execute(spec=spec, operation=operation)
+            self._trace("adapter_completed", turn=turn, directive=directive, status="completed")
             raw_data = guarded.data
             if not isinstance(raw_data, dict):
                 raise AuditInvocationError("AUDIT_OUTPUT_TYPE_FORBIDDEN")
-            request_result_binding = _verify_request_result_binding(
-                directive=directive,
-                request_binding=request_binding,
-                result=raw_data,
-            )
             evidence_data = {
                 "governance_mode": AUDIT_GOVERNANCE_MODE,
                 "operation": directive.operation,
-                "request_binding": request_binding,
-                "request_result_binding": request_result_binding,
                 "output_changed_by_sanitizer": guarded.sanitized,
                 "serialized_bytes": guarded.serialized_bytes,
                 "result": raw_data,
@@ -685,6 +669,13 @@ class GovernedAuditInvocationService:
                     )
 
             code = _error_code(exc, "AUDIT_CAPABILITY_EXECUTION_FAILED")
+            self._trace(
+                "adapter_failed",
+                turn=turn,
+                directive=directive,
+                status="failed",
+                error_code=code,
+            )
             try:
                 envelope, append_result = self._persist_evidence(
                     turn=turn,
@@ -698,7 +689,6 @@ class GovernedAuditInvocationService:
                     data={
                         "governance_mode": AUDIT_GOVERNANCE_MODE,
                         "operation": directive.operation,
-                        "request_binding": request_binding,
                     },
                     error_code=code,
                 )
@@ -711,6 +701,14 @@ class GovernedAuditInvocationService:
                 "status": "failed",
                 "evidence_sha256": append_result.evidence_sha256,
             }
+            self._trace(
+                "invocation_failed",
+                turn=turn,
+                directive=directive,
+                audit_execution_id=envelope["audit_execution_id"],
+                status="failed",
+                error_code=code,
+            )
             raise AuditInvocationError(
                 code,
                 http_status=_http_status_for(code),
@@ -728,6 +726,13 @@ class GovernedAuditInvocationService:
             read_executed=True,
             data=evidence_data,
             error_code=None,
+        )
+        self._trace(
+            "invocation_completed",
+            turn=turn,
+            directive=directive,
+            audit_execution_id=envelope["audit_execution_id"],
+            status="completed",
         )
         return AuditInvocationOutcome(
             operation=directive.operation,
