@@ -23,6 +23,7 @@ from .audit_invocation_directive import (
     looks_like_audit_directive,
     parse_audit_directive,
 )
+from .ao01_audit_trace import emit_audit_trace
 from .audit_invocation_rate_limit import (
     AuditDirectiveAbuseLimiter,
     AuditRateLimitError,
@@ -211,6 +212,39 @@ class GovernedAuditInvocationService:
                 return str(value).strip()
         return "unknown"
 
+    def _trace(
+        self,
+        stage: str,
+        *,
+        turn: CanonicalTurnContext,
+        directive: AuditDirective | None = None,
+        audit_execution_id: str | None = None,
+        status: str | None = None,
+        error_code: str | None = None,
+        repository_verified_on_return: bool | None = None,
+    ) -> None:
+        emit_audit_trace(
+            stage,
+            trace_id=turn.execution_id,
+            request_id=turn.request_id,
+            execution_id=turn.execution_id,
+            audit_execution_id=audit_execution_id,
+            thread_id=turn.thread_id,
+            tenant_id=turn.tenant_id,
+            requested_agent=turn.requested_target,
+            resolved_agent=turn.resolved_agent_id,
+            turn_owner=turn.turn_owner_agent_id,
+            route_family=turn.route_family.value,
+            channel=turn.channel.value,
+            capability_id=directive.spec.capability_id if directive is not None else None,
+            operation=directive.operation if directive is not None else None,
+            deployment_id=self._deployment_id(),
+            build_sha=str(getattr(self._settings, "release_sha", "unknown") or "unknown"),
+            status=status,
+            error_code=error_code,
+            repository_verified_on_return=repository_verified_on_return,
+        )
+
     def _evidence_root(self, directive: AuditDirective) -> str | None:
         if directive.operation.startswith(("file.", "archive.")):
             return "artifact"
@@ -268,6 +302,14 @@ class GovernedAuditInvocationService:
             data=data,
             error_code=error_code,
         )
+        self._trace(
+            "evidence_persist_started",
+            turn=turn,
+            directive=directive,
+            audit_execution_id=envelope.audit_execution_id,
+            status=status,
+            error_code=error_code,
+        )
         try:
             result = self._append_fn(
                 envelope,
@@ -275,10 +317,27 @@ class GovernedAuditInvocationService:
             )
         except Exception as exc:
             code = _error_code(exc, "AUDIT_EVIDENCE_PERSISTENCE_FAILED")
+            self._trace(
+                "evidence_persist_failed",
+                turn=turn,
+                directive=directive,
+                audit_execution_id=envelope.audit_execution_id,
+                status="failed",
+                error_code=code,
+            )
             raise AuditInvocationError(
                 code,
                 http_status=_http_status_for(code),
             ) from exc
+        self._trace(
+            "evidence_repository_returned",
+            turn=turn,
+            directive=directive,
+            audit_execution_id=envelope.audit_execution_id,
+            status=status,
+            error_code=error_code,
+            repository_verified_on_return=(self._append_fn is append_evidence),
+        )
         return envelope.to_dict(), result
 
     def _deny(
@@ -519,6 +578,12 @@ class GovernedAuditInvocationService:
         try:
             directive = parse_audit_directive(message)
         except AuditDirectiveError as exc:
+            self._trace(
+                "directive_parse_failed",
+                turn=turn,
+                status="failed",
+                error_code=exc.code,
+            )
             raise AuditInvocationError(
                 exc.code,
                 http_status=_http_status_for(exc.code),
@@ -526,12 +591,20 @@ class GovernedAuditInvocationService:
         if directive is None:
             return None
 
+        self._trace("directive_parsed", turn=turn, directive=directive, status="accepted")
         requested_canonical_agent_id = self._requested_canonical_agent_id(turn)
         preflight_reason = self._preflight_reason(
             turn=turn,
             requested_canonical_agent_id=requested_canonical_agent_id,
         )
         if preflight_reason is not None:
+            self._trace(
+                "policy_denied",
+                turn=turn,
+                directive=directive,
+                status="denied",
+                error_code=preflight_reason,
+            )
             self._deny(
                 turn=turn,
                 requested_canonical_agent_id=requested_canonical_agent_id,
@@ -539,6 +612,7 @@ class GovernedAuditInvocationService:
                 reason=preflight_reason,
             )
 
+        self._trace("policy_preflight_allowed", turn=turn, directive=directive, status="accepted")
         privileged_user = bool({"admin", "orkio_admin"}.intersection(set(principal_roles)))
         decision = self._authorize(
             directive=directive,
@@ -547,6 +621,13 @@ class GovernedAuditInvocationService:
             privileged_user=privileged_user,
         )
         if not decision.allowed:
+            self._trace(
+                "policy_denied",
+                turn=turn,
+                directive=directive,
+                status="denied",
+                error_code=decision.reason,
+            )
             self._deny(
                 turn=turn,
                 requested_canonical_agent_id=requested_canonical_agent_id,
@@ -554,10 +635,14 @@ class GovernedAuditInvocationService:
                 reason=decision.reason,
             )
 
+        self._trace("policy_allowed", turn=turn, directive=directive, status="accepted")
         spec = self._registry.get(directive.spec.capability_id)
+        self._trace("dispatcher_enter", turn=turn, directive=directive, status="running")
         operation = self._operation(directive, tenant_id=turn.tenant_id)
         try:
+            self._trace("adapter_started", turn=turn, directive=directive, status="running")
             guarded = self._guard.execute(spec=spec, operation=operation)
+            self._trace("adapter_completed", turn=turn, directive=directive, status="completed")
             raw_data = guarded.data
             if not isinstance(raw_data, dict):
                 raise AuditInvocationError("AUDIT_OUTPUT_TYPE_FORBIDDEN")
@@ -584,6 +669,13 @@ class GovernedAuditInvocationService:
                     )
 
             code = _error_code(exc, "AUDIT_CAPABILITY_EXECUTION_FAILED")
+            self._trace(
+                "adapter_failed",
+                turn=turn,
+                directive=directive,
+                status="failed",
+                error_code=code,
+            )
             try:
                 envelope, append_result = self._persist_evidence(
                     turn=turn,
@@ -609,6 +701,14 @@ class GovernedAuditInvocationService:
                 "status": "failed",
                 "evidence_sha256": append_result.evidence_sha256,
             }
+            self._trace(
+                "invocation_failed",
+                turn=turn,
+                directive=directive,
+                audit_execution_id=envelope["audit_execution_id"],
+                status="failed",
+                error_code=code,
+            )
             raise AuditInvocationError(
                 code,
                 http_status=_http_status_for(code),
@@ -626,6 +726,13 @@ class GovernedAuditInvocationService:
             read_executed=True,
             data=evidence_data,
             error_code=None,
+        )
+        self._trace(
+            "invocation_completed",
+            turn=turn,
+            directive=directive,
+            audit_execution_id=envelope["audit_execution_id"],
+            status="completed",
         )
         return AuditInvocationOutcome(
             operation=directive.operation,
